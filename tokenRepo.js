@@ -13,6 +13,7 @@ async function saveTokens({
 }) {
   console.log(`💾 Attempting to save tokens for chat ${chatId}...`);
   
+  // More robust query with explicit column names
   const query = `
     INSERT INTO oauth_tokens
       (telegram_user_id, access_token, refresh_token, expires_at,
@@ -24,8 +25,19 @@ async function saveTokens({
           expires_at    = EXCLUDED.expires_at,
           client_id     = EXCLUDED.client_id,
           client_secret = EXCLUDED.client_secret,
-          updated_at    = NOW();
+          updated_at    = NOW()
+    RETURNING id, telegram_user_id, created_at, updated_at;
   `;
+  
+  console.log('📝 SQL Query:', query);
+  console.log('📝 Parameters:', [
+    chatId,
+    accessToken ? 'present' : 'missing',
+    refreshToken ? 'present' : 'missing',
+    expiresAt?.toISOString(),
+    clientId ? 'present' : 'missing',
+    clientSecret ? 'present' : 'missing'
+  ]);
   
   try {
     // Wait for database pool to be ready with comprehensive checks
@@ -96,6 +108,11 @@ async function saveTokens({
       console.error('🔄 Database connection reset - network issue');
     } else if (error.code === '42P01') {
       console.error('📋 Table not found - run setup.sql to create oauth_tokens table');
+      console.error('💡 You can use POST /create-table endpoint to create the table');
+    } else if (error.code === '42703') {
+      console.error('🔧 Column not found - table structure mismatch');
+      console.error('💡 Check table structure with GET /test-table-structure endpoint');
+      console.error('💡 You might need to recreate the table with POST /create-table');
     }
     
     throw error;

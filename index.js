@@ -642,5 +642,83 @@ app.post("/test-token-save", async (req, res) => {
   }
 });
 
+// Test table structure endpoint
+app.get("/test-table-structure", async (req, res) => {
+  try {
+    const { pool } = require('./db');
+    
+    // Check if table exists and get its structure
+    const tableCheck = await pool.query(`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns 
+      WHERE table_name = 'oauth_tokens' 
+      ORDER BY ordinal_position;
+    `);
+    
+    if (tableCheck.rows.length === 0) {
+      return res.json({
+        status: "table_missing",
+        message: "oauth_tokens table does not exist",
+        solution: "Run the setup.sql script in your Supabase database"
+      });
+    }
+    
+    res.json({
+      status: "table_exists",
+      columns: tableCheck.rows,
+      column_count: tableCheck.rows.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Create table endpoint (for debugging)
+app.post("/create-table", async (req, res) => {
+  try {
+    const { pool } = require('./db');
+    
+    // Create the table with the correct structure
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS oauth_tokens (
+          id BIGSERIAL PRIMARY KEY,
+          telegram_user_id BIGINT NOT NULL,
+          access_token TEXT NOT NULL,
+          refresh_token TEXT NOT NULL,
+          expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          client_id TEXT NOT NULL,
+          client_secret TEXT NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+    
+    // Create unique index for telegram_user_id
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_tokens_chat ON oauth_tokens (telegram_user_id);
+    `);
+    
+    // Create index on expires_at
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_tokens_expires_at ON oauth_tokens (expires_at);
+    `);
+    
+    res.json({
+      status: "table_created",
+      message: "oauth_tokens table created successfully"
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+      code: error.code
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Webhook running on port ${PORT}`));
