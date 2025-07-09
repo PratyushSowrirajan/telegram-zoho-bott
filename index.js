@@ -425,7 +425,6 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", action: "token_exchange_failed" });
     }
   }
-  }
     console.log(`❓ Processing non-connect message: "${text?.substring(0, 50)}..."`);
     
     // Check if this might be JSON content (fallback for lost user state)
