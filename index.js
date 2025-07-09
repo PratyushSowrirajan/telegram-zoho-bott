@@ -2,6 +2,8 @@ const express = require("express");
 const axios = require("axios");
 const { saveTokens, getTokens, areTokensExpired } = require('./tokenRepo');
 const { testDatabaseConnection } = require('./db');
+const { startBackgroundRefresh, getValidAccessToken } = require('./tokenRefresh');
+const { handleLeadsCommand, handleLeadsCountCommand } = require('./leadCommands');
 const app = express();
 app.use(express.json());
 
@@ -46,6 +48,9 @@ async function setupWebhook() {
 
 // Set up webhook when server starts
 setupWebhook();
+
+// Start automatic token refresh service
+startBackgroundRefresh();
 
 // Store user states for multi-step process
 const userStates = new Map();
@@ -254,6 +259,110 @@ app.post("/telegram-webhook", async (req, res) => {
       }
       
       return res.status(500).json({ status: "error", message: "dbtest_failed" });
+    }
+  }
+  // Status command to check token status
+  else if (text === "/status") {
+    try {
+      console.log(`📊 Processing /status command from chat ${chatId}`);
+      
+      const { getValidAccessToken } = require('./tokenRefresh');
+      const tokenResult = await getValidAccessToken(chatId);
+      
+      if (tokenResult.success) {
+        const expiresAt = new Date(tokenResult.expiresAt);
+        const now = new Date();
+        const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+        const minutesUntilExpiry = Math.floor(timeUntilExpiry / (1000 * 60));
+        const hoursUntilExpiry = Math.floor(minutesUntilExpiry / 60);
+        
+        let timeString;
+        if (hoursUntilExpiry > 0) {
+          timeString = `${hoursUntilExpiry}h ${minutesUntilExpiry % 60}m`;
+        } else if (minutesUntilExpiry > 0) {
+          timeString = `${minutesUntilExpiry}m`;
+        } else {
+          timeString = "Less than 1 minute";
+        }
+        
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `📊 *Zoho CRM Connection Status*\n\n` +
+                `✅ Status: Connected\n` +
+                `🔑 Access Token: Valid\n` +
+                `⏰ Expires in: ${timeString}\n` +
+                `🔄 Auto-refresh: Enabled\n` +
+                `${tokenResult.wasRefreshed ? '🆕 Token was just refreshed\n' : ''}` +
+                `\n📅 Expires at: ${expiresAt.toLocaleString()}\n\n` +
+                `💡 Your tokens are automatically refreshed when needed!`,
+          parse_mode: "Markdown"
+        });
+      } else if (tokenResult.needsReconnect) {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `📊 *Zoho CRM Connection Status*\n\n` +
+                `❌ Status: Disconnected\n` +
+                `🔑 Access Token: Invalid/Expired\n` +
+                `❗ Issue: ${tokenResult.error}\n\n` +
+                `🔗 Please use /connect to reconnect your Zoho CRM account.`,
+          parse_mode: "Markdown"
+        });
+      } else {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `📊 *Zoho CRM Connection Status*\n\n` +
+                `⚠️ Status: Error\n` +
+                `❗ Issue: ${tokenResult.error}\n\n` +
+                `🔗 Try /connect to reconnect or contact support if the issue persists.`,
+          parse_mode: "Markdown"
+        });
+      }
+      
+      return res.status(200).json({ status: "success", action: "status_completed" });
+      
+    } catch (error) {
+      console.error("❌ Error in status command:", error.message);
+      
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `❌ *Status Check Error*\n\nFailed to check connection status: ${error.message}`
+        });
+      } catch (fallbackError) {
+        console.error("❌ Failed to send status error message:", fallbackError.message);
+      }
+      
+      return res.status(500).json({ status: "error", message: "status_failed" });
+    }
+  }
+  // Leads command to fetch latest leads from Zoho CRM
+  else if (text === "/leads") {
+    try {
+      const result = await handleLeadsCommand(chatId, BOT_TOKEN);
+      return res.status(200).json({ 
+        status: "success", 
+        action: "leads_completed",
+        leadCount: result.leadCount,
+        wasTokenRefreshed: result.wasTokenRefreshed
+      });
+    } catch (error) {
+      console.error("❌ Error in leads command:", error.message);
+      return res.status(500).json({ status: "error", message: "leads_failed" });
+    }
+  }
+  // Leads count command to get lead statistics
+  else if (text === "/leads_count") {
+    try {
+      const result = await handleLeadsCountCommand(chatId, BOT_TOKEN);
+      return res.status(200).json({ 
+        status: "success", 
+        action: "leads_count_completed",
+        totalLeads: result.totalLeads,
+        statusCounts: result.statusCounts
+      });
+    } catch (error) {
+      console.error("❌ Error in leads_count command:", error.message);
+      return res.status(500).json({ status: "error", message: "leads_count_failed" });
     }
   }
   // Check if user is in the waiting state or if the message contains JSON
@@ -533,6 +642,9 @@ app.post("/telegram-webhook", async (req, res) => {
         text: `❓ Unknown command: "${text?.substring(0, 50)}..."\n\n` +
               `Available commands:\n` +
               `• /connect - Set up Zoho CRM integration\n` +
+              `• /status - Check connection and token status\n` +
+              `• /leads - Get latest leads from your CRM\n` +
+              `• /leads_count - Get lead statistics by status\n` +
               `• /dbtest - Test database connection\n\n` +
               `Please use /connect to get started.`,
         parse_mode: "Markdown"
@@ -716,6 +828,88 @@ app.post("/create-table", async (req, res) => {
       status: "error",
       message: error.message,
       code: error.code
+    });
+  }
+});
+
+// Test token refresh endpoint
+app.post("/test-token-refresh/:chatId", async (req, res) => {
+  try {
+    const { refreshAccessToken, getValidAccessToken } = require('./tokenRefresh');
+    const chatId = req.params.chatId;
+    
+    console.log(`🧪 Testing token refresh for chat ${chatId}...`);
+    
+    // Test getting valid token (auto-refresh if needed)
+    const tokenResult = await getValidAccessToken(chatId);
+    
+    if (tokenResult.success) {
+      res.json({
+        status: "token_refresh_test_success",
+        message: "Token refresh test completed successfully",
+        tokenInfo: {
+          chatId: chatId,
+          hasAccessToken: !!tokenResult.accessToken,
+          expiresAt: tokenResult.expiresAt,
+          wasRefreshed: tokenResult.wasRefreshed
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(400).json({
+        status: "token_refresh_test_failed",
+        error: tokenResult.error,
+        needsReconnect: tokenResult.needsReconnect,
+        details: tokenResult.details,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('❌ Token refresh test failed:', error.message);
+    res.status(500).json({
+      status: "token_refresh_test_error",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Manual token refresh endpoint
+app.post("/manual-refresh/:chatId", async (req, res) => {
+  try {
+    const { refreshAccessToken } = require('./tokenRefresh');
+    const chatId = req.params.chatId;
+    
+    console.log(`🔄 Manual token refresh for chat ${chatId}...`);
+    
+    const refreshResult = await refreshAccessToken(chatId);
+    
+    if (refreshResult.success) {
+      res.json({
+        status: "manual_refresh_success",
+        message: "Token refreshed successfully",
+        tokenInfo: {
+          chatId: chatId,
+          hasNewAccessToken: !!refreshResult.newAccessToken,
+          expiresAt: refreshResult.expiresAt,
+          expiresIn: refreshResult.expiresIn
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(400).json({
+        status: "manual_refresh_failed",
+        error: refreshResult.error,
+        details: refreshResult.details,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('❌ Manual refresh failed:', error.message);
+    res.status(500).json({
+      status: "manual_refresh_error",
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
