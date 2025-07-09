@@ -77,36 +77,14 @@ app.post("/telegram-webhook", async (req, res) => {
   const chatId = message.chat.id;
   const text = message.text;
   
-  console.log(`Message from ${chatId}: ${text}`);
+  console.log(`Message from ${chatId}: "${text}" (length: ${text?.length})`);
+  console.log('Message type:', typeof text);
+  console.log('Text comparison - /connect:', text === "/connect");
 
-  if (text === "/leads") {
+  if (text === "/connect") {
     try {
-      // Fetch leads from Zoho CRM
-      const response = await axios.get("https://www.zohoapis.in/crm/v2/Leads?sort_by=Created_Time&sort_order=desc&per_page=5", {
-        headers: { Authorization: `Zoho-oauthtoken ${ZOHO_TOKEN}` }
-      });
-
-      const leads = response.data.data;
-      let reply = "📋 *Latest Leads:*\n\n";
-
-      leads.forEach((lead, i) => {
-        reply += `${i + 1}. 👤 ${lead.First_Name || ""} ${lead.Last_Name || ""} | 📞 ${lead.Phone || "-"} | ✉️ ${lead.Email || "-"} | 🏢 ${lead.Company || "-"}\n`;
-      });
-
-      // Send reply back to Telegram
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: reply,
-        parse_mode: "Markdown"
-      });
-
-      res.send("Message sent");
-    } catch (e) {
-      console.error(e.response?.data || e.message);
-      res.status(500).send("Error");
-    }
-  } else if (text === "/connect") {
-    try {
+      console.log(`✅ /connect command received from ${chatId}`);
+      
       // Store user's chat ID and initiate connection process
       userStates.set(chatId, { step: 'waiting_for_json', chatId: chatId });
       
@@ -134,9 +112,10 @@ app.post("/telegram-webhook", async (req, res) => {
         parse_mode: "Markdown"
       });
 
+      console.log("✅ Connect instructions sent successfully");
       res.send("Connect instructions sent");
     } catch (e) {
-      console.error(e.response?.data || e.message);
+      console.error("❌ Error sending connect instructions:", e.response?.data || e.message);
       res.status(500).send("Error");
     }
   } else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
@@ -228,6 +207,18 @@ app.post("/telegram-webhook", async (req, res) => {
       res.status(500).send("Token exchange failed");
     }
   } else {
+    console.log(`❓ Unknown command received: "${text}"`);
+    
+    // Send helpful response for unknown commands
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: `❓ Unknown command: "${text}"\n\n` +
+            `Available commands:\n` +
+            `• /connect - Set up Zoho CRM integration\n\n` +
+            `Please use /connect to get started.`,
+      parse_mode: "Markdown"
+    });
+    
     res.send("Unknown command");
   }
 });
