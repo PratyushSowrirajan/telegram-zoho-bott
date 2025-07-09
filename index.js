@@ -256,6 +256,8 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "dbtest_failed" });
     }
   }
+  // Check if user is in the waiting state or if the message contains JSON
+  else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
       console.log(`📝 JSON content received from ${chatId}`);
       
@@ -424,7 +426,7 @@ app.post("/telegram-webhook", async (req, res) => {
       userStates.delete(chatId);
       return res.status(500).json({ status: "error", action: "token_exchange_failed" });
     }
-  }
+  } else {
     console.log(`❓ Processing non-connect message: "${text?.substring(0, 50)}..."`);
     
     // Check if this might be JSON content (fallback for lost user state)
