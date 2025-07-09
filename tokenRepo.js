@@ -43,8 +43,11 @@ async function saveTokens({
       await waitForPool(60000); // Wait up to 60 seconds
     }
     
-    // Final check with actual connection test
-    if (!pool) {
+    // Get fresh reference to pool after waiting
+    const { pool: currentPool } = require('./db.js');
+    
+    // Final check with current pool reference
+    if (!currentPool) {
       throw new Error('Database pool is not available after waiting');
     }
     
@@ -52,7 +55,7 @@ async function saveTokens({
     console.log('🧪 Testing pool connection before saving tokens...');
     let testClient;
     try {
-      testClient = await pool.connect();
+      testClient = await currentPool.connect();
       console.log('✅ Pool connection test successful');
       testClient.release();
     } catch (testError) {
@@ -62,7 +65,7 @@ async function saveTokens({
     
     console.log('✅ Database pool ready, executing query...');
     
-    const result = await pool.query(query, [
+    const result = await currentPool.query(query, [
       chatId,
       accessToken,
       refreshToken,
@@ -112,11 +115,14 @@ async function getTokens(chatId) {
       await waitForPool(60000); // Wait up to 60 seconds
     }
     
-    if (!pool) {
+    // Get fresh reference to pool after waiting
+    const { pool: currentPool } = require('./db.js');
+    
+    if (!currentPool) {
       throw new Error('Database pool is not available after waiting');
     }
     
-    const { rows } = await pool.query(
+    const { rows } = await currentPool.query(
       'SELECT * FROM oauth_tokens WHERE telegram_user_id = $1 LIMIT 1',
       [chatId]
     );
