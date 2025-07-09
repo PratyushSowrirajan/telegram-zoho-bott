@@ -23,10 +23,34 @@ console.log('✅ Environment variables loaded successfully');
 // Store user states for multi-step process
 const userStates = new Map();
 
+// Health check endpoint
+app.get("/", (req, res) => {
+  res.json({ 
+    status: "Bot is running!", 
+    timestamp: new Date().toISOString(),
+    port: PORT 
+  });
+});
+
+// Health check for webhook
+app.get("/health", (req, res) => {
+  res.json({ status: "healthy", bot: "telegram-zoho-bot" });
+});
+
 app.post("/telegram-webhook", async (req, res) => {
+  console.log('Received webhook:', JSON.stringify(req.body, null, 2));
+  
+  // Validate request structure
+  if (!req.body || !req.body.message) {
+    console.log('Invalid request - no message found');
+    return res.send("OK");
+  }
+  
   const message = req.body.message;
   const chatId = message.chat.id;
   const text = message.text;
+  
+  console.log(`Message from ${chatId}: ${text}`);
 
   if (text === "/leads") {
     try {
