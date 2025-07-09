@@ -266,20 +266,31 @@ async function testDatabaseConnection() {
 }
 
 // Function to wait for pool to be ready
-async function waitForPool(maxWaitTime = 10000) {
+async function waitForPool(maxWaitTime = 60000) {
   const startTime = Date.now();
   
-  while (!poolReady && !pool) {
-    if (Date.now() - startTime > maxWaitTime) {
+  console.log(`⏳ Waiting for pool to be ready... (max wait: ${maxWaitTime/1000}s)`);
+  
+  while (!poolReady || !pool) {
+    const elapsed = Date.now() - startTime;
+    if (elapsed > maxWaitTime) {
+      console.error(`❌ Database pool initialization timeout after ${elapsed/1000}s`);
+      console.error(`Pool state: pool=${!!pool}, poolReady=${poolReady}`);
       throw new Error('Database pool initialization timeout');
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    if (elapsed % 5000 === 0) {
+      console.log(`⏳ Still waiting... elapsed: ${elapsed/1000}s, pool: ${!!pool}, ready: ${poolReady}`);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
   
   if (!pool) {
     throw new Error('Database pool is not available');
   }
   
+  console.log(`✅ Pool is ready after ${(Date.now() - startTime)/1000}s`);
   return pool;
 }
 
