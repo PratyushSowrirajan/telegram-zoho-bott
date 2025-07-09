@@ -2,7 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const { saveTokens, getTokens, areTokensExpired } = require('./tokenRepo');
 const { testDatabaseConnection } = require('./db');
-const { startBackgroundRefresh, getValidAccessToken } = require('./tokenRefresh');
+const { startBackgroundRefresh, getValidAccessToken, refreshAccessToken } = require('./tokenRefresh');
 const { handleLeadsCommand, handleLeadsCountCommand } = require('./leadCommands');
 const app = express();
 app.use(express.json());
@@ -333,6 +333,97 @@ app.post("/telegram-webhook", async (req, res) => {
       }
       
       return res.status(500).json({ status: "error", message: "status_failed" });
+    }
+  }
+  // Debug command to check token status
+  else if (text === "/debug") {
+    try {
+      console.log(`🔍 Processing /debug command from chat ${chatId}`);
+      
+      // Send loading message
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: "🔍 *Debug Info*\n\nChecking your token status...",
+        parse_mode: "Markdown"
+      });
+      
+      // Get token info
+      const tokens = await getTokens(chatId);
+      if (!tokens) {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: "❌ *No tokens found*\n\nPlease use /connect to set up your account.",
+          parse_mode: "Markdown"
+        });
+        return res.status(200).json({ status: "success", action: "debug_no_tokens" });
+      }
+      
+      // Check token expiry
+      const now = new Date();
+      const expiresAt = new Date(tokens.expires_at);
+      const isExpired = now >= expiresAt;
+      const minutesUntilExpiry = Math.round((expiresAt.getTime() - now.getTime()) / (1000 * 60));
+      
+      // Test token validity
+      let tokenValid = false;
+      let apiError = null;
+      
+      try {
+        const testResponse = await axios.get('https://www.zohoapis.in/crm/v2/org', {
+          headers: { 
+            Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        });
+        tokenValid = testResponse.status === 200;
+      } catch (testError) {
+        apiError = testError.response?.data?.message || testError.message;
+      }
+      
+      // Send debug info
+      let debugMessage = `🔍 *Debug Information*\n\n`;
+      debugMessage += `📊 *Token Status:*\n`;
+      debugMessage += `• Access Token: ${tokens.access_token ? 'Present' : 'Missing'}\n`;
+      debugMessage += `• Refresh Token: ${tokens.refresh_token ? 'Present' : 'Missing'}\n`;
+      debugMessage += `• Client ID: ${tokens.client_id ? 'Present' : 'Missing'}\n`;
+      debugMessage += `• Client Secret: ${tokens.client_secret ? 'Present' : 'Missing'}\n\n`;
+      
+      debugMessage += `⏰ *Expiry Info:*\n`;
+      debugMessage += `• Expires At: ${expiresAt.toLocaleString()}\n`;
+      debugMessage += `• Is Expired: ${isExpired ? '❌ Yes' : '✅ No'}\n`;
+      debugMessage += `• Minutes Until Expiry: ${minutesUntilExpiry}\n\n`;
+      
+      debugMessage += `🧪 *API Test:*\n`;
+      debugMessage += `• Token Valid: ${tokenValid ? '✅ Yes' : '❌ No'}\n`;
+      if (apiError) {
+        debugMessage += `• API Error: ${apiError}\n`;
+      }
+      
+      debugMessage += `\n📝 *Chat ID:* \`${chatId}\``;
+      
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: debugMessage,
+        parse_mode: "Markdown"
+      });
+      
+      return res.status(200).json({ status: "success", action: "debug_completed" });
+      
+    } catch (error) {
+      console.error("❌ Error in debug command:", error.message);
+      
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: "❌ *Debug Error*\n\nFailed to get debug information. Please try again.",
+          parse_mode: "Markdown"
+        });
+      } catch (fallbackError) {
+        console.error("❌ Failed to send debug error message:", fallbackError.message);
+      }
+      
+      return res.status(500).json({ status: "error", message: "debug_failed" });
     }
   }
   // Leads command to fetch latest leads from Zoho CRM
@@ -910,6 +1001,110 @@ app.post("/manual-refresh/:chatId", async (req, res) => {
       status: "manual_refresh_error",
       error: error.message,
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Add debug endpoints for troubleshooting
+app.get('/debug-tokens/:chatId', async (req, res) => {
+  const chatId = req.params.chatId;
+  
+  try {
+    console.log(`🔍 Debug: Checking tokens for chat ${chatId}`);
+    
+    // Check if tokens exist
+    const tokens = await getTokens(chatId);
+    if (!tokens) {
+      return res.json({
+        success: false,
+        error: 'No tokens found for this chat ID',
+        chatId: chatId
+      });
+    }
+    
+    // Check token expiry
+    const now = new Date();
+    const expiresAt = new Date(tokens.expires_at);
+    const isExpired = now >= expiresAt;
+    const minutesUntilExpiry = (expiresAt.getTime() - now.getTime()) / (1000 * 60);
+    
+    // Test token validity with Zoho API
+    let tokenValid = false;
+    let zohoPongResponse = null;
+    
+    try {
+      const testResponse = await axios.get('https://www.zohoapis.in/crm/v2/org', {
+        headers: { 
+          Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+      
+      tokenValid = testResponse.status === 200;
+      zohoPongResponse = {
+        status: testResponse.status,
+        data: testResponse.data
+      };
+    } catch (testError) {
+      zohoPongResponse = {
+        error: testError.message,
+        status: testError.response?.status,
+        data: testError.response?.data
+      };
+    }
+    
+    return res.json({
+      success: true,
+      chatId: chatId,
+      tokenInfo: {
+        hasTokens: true,
+        accessToken: tokens.access_token ? `${tokens.access_token.substring(0, 20)}...` : null,
+        refreshToken: tokens.refresh_token ? `${tokens.refresh_token.substring(0, 20)}...` : null,
+        clientId: tokens.client_id ? `${tokens.client_id.substring(0, 20)}...` : null,
+        clientSecret: tokens.client_secret ? '***hidden***' : null,
+        expiresAt: tokens.expires_at,
+        isExpired: isExpired,
+        minutesUntilExpiry: Math.round(minutesUntilExpiry),
+        createdAt: tokens.created_at,
+        updatedAt: tokens.updated_at
+      },
+      zohoApiTest: {
+        tokenValid: tokenValid,
+        response: zohoPongResponse
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Debug tokens error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      chatId: chatId
+    });
+  }
+});
+
+app.get('/debug-refresh/:chatId', async (req, res) => {
+  const chatId = req.params.chatId;
+  
+  try {
+    console.log(`🔄 Debug: Testing token refresh for chat ${chatId}`);
+    
+    const refreshResult = await refreshAccessToken(chatId);
+    
+    return res.json({
+      success: true,
+      chatId: chatId,
+      refreshResult: refreshResult
+    });
+    
+  } catch (error) {
+    console.error('❌ Debug refresh error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      chatId: chatId
     });
   }
 });
