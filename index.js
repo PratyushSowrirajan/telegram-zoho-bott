@@ -1,6 +1,7 @@
 const express = require("express");
 const axios = require("axios");
 const { saveTokens, getTokens, areTokensExpired } = require('./tokenRepo');
+const { testDatabaseConnection } = require('./db');
 const app = express();
 app.use(express.json());
 
@@ -67,7 +68,7 @@ app.get("/health", (req, res) => {
 // Database health check endpoint
 app.get("/db-health", async (req, res) => {
   try {
-    const pool = require('./db');
+    const { pool } = require('./db');
     const result = await pool.query('SELECT NOW() as current_time');
     res.json({ 
       status: "database_healthy", 
@@ -79,9 +80,43 @@ app.get("/db-health", async (req, res) => {
     res.status(500).json({ 
       status: "database_error", 
       error: error.message,
+      code: error.code,
       timestamp: new Date().toISOString()
     });
   }
+});
+
+// Database debug endpoint - detailed testing
+app.get("/db-debug", async (req, res) => {
+  const testResult = await testDatabaseConnection();
+  
+  if (testResult.success) {
+    res.json({
+      status: "database_debug_success",
+      ...testResult,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    res.status(500).json({
+      status: "database_debug_failed",
+      ...testResult,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Debug environment variables (safe version)
+app.get("/debug-env", (req, res) => {
+  res.json({
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    has_DATABASE_URL: !!process.env.DATABASE_URL,
+    has_TELEGRAM_TOKEN: !!process.env.TELEGRAM_TOKEN,
+    DATABASE_URL_preview: process.env.DATABASE_URL ? 
+      `${process.env.DATABASE_URL.substring(0, 30)}...${process.env.DATABASE_URL.substring(process.env.DATABASE_URL.length - 20)}` : 
+      'Not set',
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.post("/telegram-webhook", async (req, res) => {
@@ -160,6 +195,65 @@ app.post("/telegram-webhook", async (req, res) => {
       }
       
       return res.status(500).json({ status: "error", message: "failed to send instructions" });
+    }
+  } 
+  // Database test command for debugging
+  else if (text === "/dbtest") {
+    try {
+      console.log(`🧪 Processing /dbtest command from chat ${chatId}`);
+      
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: "🧪 *Testing Database Connection...*\n\nPlease wait while I diagnose the database issue.",
+        parse_mode: "Markdown"
+      });
+      
+      const testResult = await testDatabaseConnection();
+      
+      let message;
+      if (testResult.success) {
+        message = `✅ *Database Test Successful!*\n\n` +
+                 `🗄️ Database is working properly\n` +
+                 `⏰ Current time: ${testResult.details.currentTime}\n` +
+                 `🔧 Version: ${testResult.details.version}\n\n` +
+                 `Your tokens will be stored successfully! 🎉`;
+      } else {
+        message = `❌ *Database Test Failed*\n\n` +
+                 `🚫 Error: ${testResult.message}\n` +
+                 `📝 Details: ${testResult.error}\n` +
+                 `🔧 Code: ${testResult.code || 'Unknown'}\n\n` +
+                 `**Technical Info:**\n`;
+        
+        if (testResult.details) {
+          if (testResult.details.address) message += `• Address: ${testResult.details.address}\n`;
+          if (testResult.details.port) message += `• Port: ${testResult.details.port}\n`;
+          if (testResult.details.syscall) message += `• System call: ${testResult.details.syscall}\n`;
+        }
+        
+        message += `\n⚠️ Tokens cannot be stored but can still be displayed.`;
+      }
+      
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: message,
+        parse_mode: "Markdown"
+      });
+      
+      return res.status(200).json({ status: "success", action: "dbtest_completed" });
+      
+    } catch (error) {
+      console.error("❌ Error in dbtest command:", error.message);
+      
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `❌ *Database Test Error*\n\nFailed to run database test: ${error.message}`
+        });
+      } catch (fallbackError) {
+        console.error("❌ Failed to send dbtest error message:", fallbackError.message);
+      }
+      
+      return res.status(500).json({ status: "error", message: "dbtest_failed" });
     }
   } else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
@@ -395,7 +489,8 @@ app.post("/telegram-webhook", async (req, res) => {
         chat_id: chatId,
         text: `❓ Unknown command: "${text?.substring(0, 50)}..."\n\n` +
               `Available commands:\n` +
-              `• /connect - Set up Zoho CRM integration\n\n` +
+              `• /connect - Set up Zoho CRM integration\n` +
+              `• /dbtest - Test database connection\n\n` +
               `Please use /connect to get started.`,
         parse_mode: "Markdown"
       });

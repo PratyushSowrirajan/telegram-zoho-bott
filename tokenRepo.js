@@ -1,4 +1,4 @@
-const pool = require('./db.js');
+const { pool } = require('./db.js');
 
 /**
  * Upsert a user's Zoho tokens
