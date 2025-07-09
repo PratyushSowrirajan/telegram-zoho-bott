@@ -64,29 +64,56 @@ app.get("/health", (req, res) => {
   res.json({ status: "healthy", bot: "telegram-zoho-bot" });
 });
 
+// Database health check endpoint
+app.get("/db-health", async (req, res) => {
+  try {
+    const pool = require('./db');
+    const result = await pool.query('SELECT NOW() as current_time');
+    res.json({ 
+      status: "database_healthy", 
+      current_time: result.rows[0].current_time,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Database health check failed:', error.message);
+    res.status(500).json({ 
+      status: "database_error", 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.post("/telegram-webhook", async (req, res) => {
-  console.log('Received webhook:', JSON.stringify(req.body, null, 2));
+  console.log('📨 Webhook received at:', new Date().toISOString());
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
   
   // Validate request structure
   if (!req.body || !req.body.message) {
-    console.log('Invalid request - no message found');
-    return res.send("OK");
+    console.log('⚠️ Invalid request - no message found');
+    return res.status(200).json({ status: "ok", message: "no message" });
   }
   
   const message = req.body.message;
   const chatId = message.chat.id;
   const text = message.text;
   
-  console.log(`Message from ${chatId}: "${text}" (length: ${text?.length})`);
-  console.log('Message type:', typeof text);
-  console.log('Text comparison - /connect:', text === "/connect");
+  console.log(`📱 Message from ${chatId}: "${text}" (length: ${text?.length})`);
+  console.log('Message details:', {
+    type: typeof text,
+    isConnect: text === "/connect",
+    startsWithSlash: text?.startsWith('/'),
+    chatType: message.chat.type
+  });
 
+  // Always respond to /connect command
   if (text === "/connect") {
     try {
-      console.log(`✅ /connect command received from ${chatId}`);
+      console.log(`✅ Processing /connect command from chat ${chatId}`);
       
       // Store user's chat ID and initiate connection process
       userStates.set(chatId, { step: 'waiting_for_json', chatId: chatId });
+      console.log(`📝 User state set for ${chatId}:`, userStates.get(chatId));
       
       const instructions = `🔗 *Connect Your Zoho CRM*\n\n` +
         `📋 *Step-by-step instructions:*\n\n` +
@@ -106,17 +133,33 @@ app.post("/telegram-webhook", async (req, res) => {
         `⚡ *Your Chat ID:* \`${chatId}\`\n\n` +
         `📝 Once you paste the JSON content, I'll automatically set up your Zoho CRM connection!`;
 
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      console.log('📤 Sending connect instructions...');
+      
+      const telegramResponse = await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         chat_id: chatId,
         text: instructions,
         parse_mode: "Markdown"
       });
 
       console.log("✅ Connect instructions sent successfully");
-      res.send("Connect instructions sent");
-    } catch (e) {
-      console.error("❌ Error sending connect instructions:", e.response?.data || e.message);
-      res.status(500).send("Error");
+      console.log("Telegram API response:", telegramResponse.data);
+      
+      return res.status(200).json({ status: "success", action: "connect_instructions_sent" });
+      
+    } catch (error) {
+      console.error("❌ Error sending connect instructions:", error.response?.data || error.message);
+      
+      // Try to send a simple error message
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: "❌ Sorry, there was an error processing your /connect command. Please try again."
+        });
+      } catch (fallbackError) {
+        console.error("❌ Failed to send error message:", fallbackError.message);
+      }
+      
+      return res.status(500).json({ status: "error", message: "failed to send instructions" });
     }
   } else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
@@ -191,31 +234,49 @@ app.post("/telegram-webhook", async (req, res) => {
       
       console.log('💾 Storing tokens in database...');
       
-      // Store tokens in database
-      await saveTokens({
-        chatId: chatId,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        expiresAt: expiresAt,
-        clientId: client_id,
-        clientSecret: client_secret
-      });
+      // Store tokens in database with better error handling
+      try {
+        await saveTokens({
+          chatId: chatId,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: expiresAt,
+          clientId: client_id,
+          clientSecret: client_secret
+        });
 
-      console.log('✅ Tokens stored successfully!');
+        console.log('✅ Tokens stored successfully!');
 
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: `✅ *Connection Successful!*\n\n` +
-              `🔑 Access token received and stored\n` +
-              `🔄 Refresh token received and stored\n` +
-              `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
-              `🎉 Your Zoho CRM is now connected!`,
-        parse_mode: "Markdown"
-      });
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `✅ *Connection Successful!*\n\n` +
+                `🔑 Access token received and stored\n` +
+                `🔄 Refresh token received and stored\n` +
+                `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
+                `🎉 Your Zoho CRM is now connected!`,
+          parse_mode: "Markdown"
+        });
+      } catch (dbError) {
+        console.error('❌ Database storage error:', dbError.message);
+        
+        // Still inform user about successful token exchange but DB issue
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `⚠️ *Partial Success*\n\n` +
+                `✅ Successfully got tokens from Zoho\n` +
+                `❌ Failed to store in database\n\n` +
+                `🔑 *Your tokens (save these):*\n` +
+                `Access Token: \`${tokens.access_token}\`\n` +
+                `Refresh Token: \`${tokens.refresh_token}\`\n` +
+                `Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
+                `⚠️ Please contact support about database issues.`,
+          parse_mode: "Markdown"
+        });
+      }
 
       // Clear user state
       userStates.delete(chatId);
-      res.send("Connection completed");
+      return res.status(200).json({ status: "success", action: "connection_completed" });
 
     } catch (e) {
       console.error('❌ Token exchange error:');
@@ -234,21 +295,25 @@ app.post("/telegram-webhook", async (req, res) => {
       
       errorMessage += "\n\nPlease try /connect again with a fresh authorization code.";
       
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: errorMessage,
-        parse_mode: "Markdown"
-      });
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: errorMessage,
+          parse_mode: "Markdown"
+        });
+      } catch (msgError) {
+        console.error('Failed to send error message:', msgError.message);
+      }
       
       // Clear user state on error
       userStates.delete(chatId);
-      res.status(500).send("Token exchange failed");
+      return res.status(500).json({ status: "error", action: "token_exchange_failed" });
     }
   } else {
-    console.log(`❓ Unknown command received: "${text}"`);
+    console.log(`❓ Processing non-connect message: "${text?.substring(0, 50)}..."`);
     
     // Check if this might be JSON content (fallback for lost user state)
-    if (text.startsWith('{') && text.includes('client_id') && text.includes('client_secret')) {
+    if (text && text.startsWith('{') && text.includes('client_id') && text.includes('client_secret')) {
       console.log('🔍 Detected potential JSON content, attempting to process...');
       
       try {
@@ -280,29 +345,44 @@ app.post("/telegram-webhook", async (req, res) => {
           
           console.log('💾 Storing tokens in database...');
           
-          await saveTokens({
-            chatId: chatId,
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
-            expiresAt: expiresAt,
-            clientId: client_id,
-            clientSecret: client_secret
-          });
+          try {
+            await saveTokens({
+              chatId: chatId,
+              accessToken: tokens.access_token,
+              refreshToken: tokens.refresh_token,
+              expiresAt: expiresAt,
+              clientId: client_id,
+              clientSecret: client_secret
+            });
 
-          console.log('✅ Tokens stored successfully!');
+            console.log('✅ Tokens stored successfully!');
 
-          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-            chat_id: chatId,
-            text: `✅ *Connection Successful!*\n\n` +
-                  `🔑 Access token received and stored\n` +
-                  `🔄 Refresh token received and stored\n` +
-                  `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
-                  `🎉 Your Zoho CRM is now connected!`,
-            parse_mode: "Markdown"
-          });
+            await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+              chat_id: chatId,
+              text: `✅ *Connection Successful!*\n\n` +
+                    `🔑 Access token received and stored\n` +
+                    `🔄 Refresh token received and stored\n` +
+                    `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
+                    `🎉 Your Zoho CRM is now connected!`,
+              parse_mode: "Markdown"
+            });
+          } catch (dbError) {
+            console.error('❌ Database storage error:', dbError.message);
+            
+            await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+              chat_id: chatId,
+              text: `⚠️ *Partial Success*\n\n` +
+                    `✅ Successfully got tokens from Zoho\n` +
+                    `❌ Failed to store in database\n\n` +
+                    `🔑 *Your tokens (save these):*\n` +
+                    `Access Token: \`${tokens.access_token}\`\n` +
+                    `Refresh Token: \`${tokens.refresh_token}\`\n` +
+                    `Expires in: ${Math.floor(tokens.expires_in / 60)} minutes`,
+              parse_mode: "Markdown"
+            });
+          }
 
-          res.send("Connection completed");
-          return;
+          return res.status(200).json({ status: "success", action: "json_processed_fallback" });
         }
       } catch (e) {
         console.error('❌ JSON processing error:', e.message);
@@ -310,16 +390,20 @@ app.post("/telegram-webhook", async (req, res) => {
     }
     
     // Send helpful response for unknown commands
-    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      chat_id: chatId,
-      text: `❓ Unknown command: "${text.substring(0, 50)}..."\n\n` +
-            `Available commands:\n` +
-            `• /connect - Set up Zoho CRM integration\n\n` +
-            `Please use /connect to get started.`,
-      parse_mode: "Markdown"
-    });
+    try {
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: `❓ Unknown command: "${text?.substring(0, 50)}..."\n\n` +
+              `Available commands:\n` +
+              `• /connect - Set up Zoho CRM integration\n\n` +
+              `Please use /connect to get started.`,
+        parse_mode: "Markdown"
+      });
+    } catch (msgError) {
+      console.error('Failed to send unknown command response:', msgError.message);
+    }
     
-    res.send("Unknown command");
+    return res.status(200).json({ status: "ok", action: "unknown_command_handled" });
   }
 });
 

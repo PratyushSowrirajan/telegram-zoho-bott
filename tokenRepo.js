@@ -11,6 +11,8 @@ async function saveTokens({
   clientId,
   clientSecret
 }) {
+  console.log(`💾 Attempting to save tokens for chat ${chatId}...`);
+  
   const query = `
     INSERT INTO oauth_tokens
       (telegram_user_id, access_token, refresh_token, expires_at,
@@ -25,25 +27,49 @@ async function saveTokens({
           updated_at    = NOW();
   `;
   
-  await pool.query(query, [
-    chatId,
-    accessToken,
-    refreshToken,
-    expiresAt,
-    clientId,
-    clientSecret
-  ]);
+  try {
+    const result = await pool.query(query, [
+      chatId,
+      accessToken,
+      refreshToken,
+      expiresAt,
+      clientId,
+      clientSecret
+    ]);
+    console.log(`✅ Tokens saved successfully for chat ${chatId}`);
+    return result;
+  } catch (error) {
+    console.error(`❌ Failed to save tokens for chat ${chatId}:`, error.message);
+    console.error('Error code:', error.code);
+    console.error('Error details:', error.detail);
+    throw error;
+  }
 }
 
 /**
  * Fetch tokens for a chat; returns null if none.
  */
 async function getTokens(chatId) {
-  const { rows } = await pool.query(
-    'SELECT * FROM oauth_tokens WHERE telegram_user_id = $1 LIMIT 1',
-    [chatId]
-  );
-  return rows[0] || null;
+  console.log(`🔍 Fetching tokens for chat ${chatId}...`);
+  
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM oauth_tokens WHERE telegram_user_id = $1 LIMIT 1',
+      [chatId]
+    );
+    
+    if (rows[0]) {
+      console.log(`✅ Found tokens for chat ${chatId}`);
+    } else {
+      console.log(`ℹ️ No tokens found for chat ${chatId}`);
+    }
+    
+    return rows[0] || null;
+  } catch (error) {
+    console.error(`❌ Failed to fetch tokens for chat ${chatId}:`, error.message);
+    console.error('Error code:', error.code);
+    throw error;
+  }
 }
 
 /**
