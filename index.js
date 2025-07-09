@@ -307,6 +307,8 @@ app.post("/telegram-webhook", async (req, res) => {
         });
       }
       
+      return res.status(200).json({ status: "success", action: "db_query_completed" });
+      
     } catch (error) {
       console.error('❌ DB query test failed:', error);
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -317,6 +319,8 @@ app.post("/telegram-webhook", async (req, res) => {
               `Details: ${error.detail || 'N/A'}`,
         parse_mode: "Markdown"
       });
+      
+      return res.status(500).json({ status: "error", message: "db_query_failed" });
     }
 
   } else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
@@ -499,12 +503,16 @@ app.post("/telegram-webhook", async (req, res) => {
         });
       }
       
+      return res.status(200).json({ status: "success", action: "check_tokens_completed" });
+      
     } catch (error) {
       console.error('❌ Check tokens failed:', error);
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         chat_id: chatId,
         text: `❌ Failed to check tokens:\n\n${error.message}`
       });
+      
+      return res.status(500).json({ status: "error", message: "check_tokens_failed" });
     }
   } else if (text === '/table-info') {
     // Check table structure and basic info
@@ -523,9 +531,12 @@ app.post("/telegram-webhook", async (req, res) => {
       `);
       
       if (!tableExists.rows[0].exists) {
-        await bot.sendMessage(chatId, '❌ Table `oauth_tokens` does not exist!\n\n' +
-          'Please run the setup.sql script to create the table.');
-        return;
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: '❌ Table `oauth_tokens` does not exist!\n\n' +
+                'Please run the setup.sql script to create the table.'
+        });
+        return res.status(200).json({ status: "error", message: "table_not_found" });
       }
       
       // Get table structure
@@ -548,11 +559,22 @@ app.post("/telegram-webhook", async (req, res) => {
         response += `• ${col.column_name} (${col.data_type})\n`;
       });
       
-      await bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: response,
+        parse_mode: 'Markdown'
+      });
+      
+      return res.status(200).json({ status: "success", action: "table_info_sent" });
       
     } catch (error) {
       console.error('❌ Table info check failed:', error);
-      await bot.sendMessage(chatId, `❌ Failed to check table info:\n\n${error.message}`);
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: `❌ Failed to check table info:\n\n${error.message}`
+      });
+      
+      return res.status(500).json({ status: "error", message: "table_info_failed" });
     }
   } else {
     console.log(`❓ Processing non-connect message: "${text?.substring(0, 50)}..."`);
