@@ -79,6 +79,7 @@ if (connectionString.includes('supabase.co') && connectionString.includes('db.')
 
 // Initialize pool variable
 let pool;
+let poolReady = false;
 
 // Async function to create pool with IPv4 resolution
 async function createPool() {
@@ -124,6 +125,7 @@ async function createPool() {
         
       } else {
         console.log('✅ Database connected successfully');
+        poolReady = true;
         release();
       }
     });
@@ -131,6 +133,7 @@ async function createPool() {
     // Handle pool errors
     pool.on('error', (err) => {
       console.error('❌ Database pool error:', err.message);
+      poolReady = false;
     });
 
   } catch (error) {
@@ -189,13 +192,16 @@ function tryNodeJSDnsOverride() {
         if (err2) {
           console.error('❌ All connection methods exhausted:', err2.message);
           console.error('💡 Consider using a different database provider or IPv4-compatible service');
+          poolReady = false;
         } else {
           console.log('✅ DNS override connection successful!');
+          poolReady = true;
           release2();
         }
       });
     } else {
       console.log('✅ Supabase pooler connection successful!');
+      poolReady = true;
       release();
     }
   });
@@ -249,9 +255,29 @@ async function testDatabaseConnection() {
   }
 }
 
+// Function to wait for pool to be ready
+async function waitForPool(maxWaitTime = 10000) {
+  const startTime = Date.now();
+  
+  while (!poolReady && !pool) {
+    if (Date.now() - startTime > maxWaitTime) {
+      throw new Error('Database pool initialization timeout');
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  if (!pool) {
+    throw new Error('Database pool is not available');
+  }
+  
+  return pool;
+}
+
 // Export both pool and test function
 // Note: pool might be undefined initially due to async creation
 module.exports = { 
   get pool() { return pool; }, 
-  testDatabaseConnection 
+  testDatabaseConnection,
+  waitForPool,
+  get poolReady() { return poolReady; }
 };

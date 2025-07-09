@@ -398,7 +398,17 @@ app.post("/telegram-webhook", async (req, res) => {
       
       // Store tokens in database with better error handling
       try {
-        await saveTokens({
+        console.log('💾 Attempting to store tokens in database...');
+        console.log('Token details:', {
+          chatId: chatId,
+          hasAccessToken: !!tokens.access_token,
+          hasRefreshToken: !!tokens.refresh_token,
+          expiresAt: expiresAt.toISOString(),
+          clientId: client_id ? 'present' : 'missing',
+          clientSecret: client_secret ? 'present' : 'missing'
+        });
+        
+        const saveResult = await saveTokens({
           chatId: chatId,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
@@ -408,6 +418,7 @@ app.post("/telegram-webhook", async (req, res) => {
         });
 
         console.log('✅ Tokens stored successfully!');
+        console.log('Save result:', saveResult);
 
         await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
           chat_id: chatId,
@@ -415,11 +426,19 @@ app.post("/telegram-webhook", async (req, res) => {
                 `🔑 Access token received and stored\n` +
                 `🔄 Refresh token received and stored\n` +
                 `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
-                `🎉 Your Zoho CRM is now connected!`,
+                `🎉 Your Zoho CRM is now connected!\n\n` +
+                `💾 Database storage: ✅ Success`,
           parse_mode: "Markdown"
         });
       } catch (dbError) {
         console.error('❌ Database storage error:', dbError.message);
+        console.error('Error details:', {
+          code: dbError.code,
+          detail: dbError.detail,
+          hint: dbError.hint,
+          position: dbError.position,
+          stack: dbError.stack
+        });
         
         // Still inform user about successful token exchange but DB issue
         await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -428,9 +447,11 @@ app.post("/telegram-webhook", async (req, res) => {
                 `✅ Successfully got tokens from Zoho\n` +
                 `❌ Failed to store in database\n\n` +
                 `🔑 *Your tokens (save these):*\n` +
-                `Access Token: \`${tokens.access_token}\`\n` +
-                `Refresh Token: \`${tokens.refresh_token}\`\n` +
+                `Access Token:\n\`${tokens.access_token}\`\n\n` +
+                `Refresh Token:\n\`${tokens.refresh_token}\`\n\n` +
                 `Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
+                `🔧 Error code: ${dbError.code || 'Unknown'}\n` +
+                `📝 Error: ${dbError.message}\n\n` +
                 `⚠️ Please contact support about database issues.`,
           parse_mode: "Markdown"
         });
@@ -613,7 +634,9 @@ app.post("/telegram-webhook", async (req, res) => {
           console.log('💾 Storing tokens in database...');
           
           try {
-            await saveTokens({
+            console.log('💾 Attempting to store tokens in database (fallback)...');
+            
+            const saveResult = await saveTokens({
               chatId: chatId,
               accessToken: tokens.access_token,
               refreshToken: tokens.refresh_token,
@@ -623,6 +646,7 @@ app.post("/telegram-webhook", async (req, res) => {
             });
 
             console.log('✅ Tokens stored successfully!');
+            console.log('Save result:', saveResult);
 
             await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
               chat_id: chatId,
@@ -630,11 +654,18 @@ app.post("/telegram-webhook", async (req, res) => {
                     `🔑 Access token received and stored\n` +
                     `🔄 Refresh token received and stored\n` +
                     `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
-                    `🎉 Your Zoho CRM is now connected!`,
+                    `🎉 Your Zoho CRM is now connected!\n\n` +
+                    `💾 Database storage: ✅ Success`,
               parse_mode: "Markdown"
             });
           } catch (dbError) {
-            console.error('❌ Database storage error:', dbError.message);
+            console.error('❌ Database storage error (fallback):', dbError.message);
+            console.error('Error details:', {
+              code: dbError.code,
+              detail: dbError.detail,
+              hint: dbError.hint,
+              position: dbError.position
+            });
             
             await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
               chat_id: chatId,
@@ -642,9 +673,11 @@ app.post("/telegram-webhook", async (req, res) => {
                     `✅ Successfully got tokens from Zoho\n` +
                     `❌ Failed to store in database\n\n` +
                     `🔑 *Your tokens (save these):*\n` +
-                    `Access Token: \`${tokens.access_token}\`\n` +
-                    `Refresh Token: \`${tokens.refresh_token}\`\n` +
-                    `Expires in: ${Math.floor(tokens.expires_in / 60)} minutes`,
+                    `Access Token:\n\`${tokens.access_token}\`\n\n` +
+                    `Refresh Token:\n\`${tokens.refresh_token}\`\n\n` +
+                    `Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
+                    `🔧 Error code: ${dbError.code || 'Unknown'}\n` +
+                    `📝 Error: ${dbError.message}`,
               parse_mode: "Markdown"
             });
           }
