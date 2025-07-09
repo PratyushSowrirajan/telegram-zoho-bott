@@ -20,11 +20,38 @@ if (!process.env.DATABASE_URL) {
 
 console.log('✅ Environment variables loaded successfully');
 
+// Auto-setup webhook on startup
+async function setupWebhook() {
+  try {
+    // Get the deployment URL from environment variables
+    const baseUrl = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || 'https://telegram-zoho-bott.onrender.com';
+    const webhookUrl = `${baseUrl}/telegram-webhook`;
+    
+    console.log('🔗 Setting up webhook:', webhookUrl);
+    
+    const response = await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+      url: webhookUrl
+    });
+    
+    if (response.data.ok) {
+      console.log('✅ Webhook set successfully:', webhookUrl);
+    } else {
+      console.error('❌ Failed to set webhook:', response.data);
+    }
+  } catch (error) {
+    console.error('❌ Error setting webhook:', error.message);
+  }
+}
+
+// Set up webhook when server starts
+setupWebhook();
+
 // Store user states for multi-step process
 const userStates = new Map();
 
 // Health check endpoint
 app.get("/", (req, res) => {
+  const PORT = process.env.PORT || 3000;
   res.json({ 
     status: "Bot is running!", 
     timestamp: new Date().toISOString(),

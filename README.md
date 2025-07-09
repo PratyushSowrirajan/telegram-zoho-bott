@@ -26,10 +26,14 @@ A Telegram bot that integrates with Zoho CRM to fetch leads and manage customer 
 
 ### 3. Environment Variables
 
-Set these environment variables in Render:
-
+**Required:**
 - `TELEGRAM_TOKEN` - Your Telegram bot token from @BotFather
 - `DATABASE_URL` - Your Supabase PostgreSQL connection string
+
+**Optional:**
+- `WEBHOOK_URL` - Your deployment URL (e.g., `https://your-app.onrender.com`). If not set, defaults to auto-detection or `https://telegram-zoho-bott.onrender.com`
+
+**Note:** The bot automatically sets up the Telegram webhook when it starts, so no manual configuration needed!
 
 ### 4. Deployment
 
