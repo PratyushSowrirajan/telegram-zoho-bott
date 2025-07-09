@@ -138,7 +138,14 @@ app.post("/telegram-webhook", async (req, res) => {
       }
 
       // Extract required data
-      const { client_id, client_secret, code } = clientData;
+      const { client_id, client_secret, code, grant_type } = clientData;
+      
+      console.log('Extracted data:', { 
+        client_id: client_id ? 'present' : 'missing',
+        client_secret: client_secret ? 'present' : 'missing', 
+        code: code ? 'present' : 'missing',
+        grant_type: grant_type
+      });
       
       if (!client_id || !client_secret || !code) {
         await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -150,6 +157,8 @@ app.post("/telegram-webhook", async (req, res) => {
         return;
       }
 
+      console.log('🔄 Attempting token exchange...');
+      
       // Exchange code for tokens
       const tokenResponse = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
         params: {
@@ -164,10 +173,19 @@ app.post("/telegram-webhook", async (req, res) => {
         }
       });
 
+      console.log('✅ Token exchange successful!');
+      console.log('Token response:', { 
+        access_token: tokenResponse.data.access_token ? 'received' : 'missing',
+        refresh_token: tokenResponse.data.refresh_token ? 'received' : 'missing',
+        expires_in: tokenResponse.data.expires_in 
+      });
+
       const tokens = tokenResponse.data;
       
       // Calculate expiration time (current time + expires_in seconds)
       const expiresAt = new Date(Date.now() + (tokens.expires_in * 1000));
+      
+      console.log('💾 Storing tokens in database...');
       
       // Store tokens in database
       await saveTokens({
@@ -179,13 +197,15 @@ app.post("/telegram-webhook", async (req, res) => {
         clientSecret: client_secret
       });
 
+      console.log('✅ Tokens stored successfully!');
+
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         chat_id: chatId,
         text: `✅ *Connection Successful!*\n\n` +
               `🔑 Access token received and stored\n` +
               `🔄 Refresh token received and stored\n` +
               `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
-              `📊 You can now use /leads to fetch your CRM data!`,
+              `🎉 Your Zoho CRM is now connected!`,
         parse_mode: "Markdown"
       });
 
@@ -194,11 +214,25 @@ app.post("/telegram-webhook", async (req, res) => {
       res.send("Connection completed");
 
     } catch (e) {
-      console.error('Token exchange error:', e.response?.data || e.message);
+      console.error('❌ Token exchange error:');
+      console.error('Error details:', e.response?.data || e.message);
+      console.error('Status:', e.response?.status);
+      console.error('Headers:', e.response?.headers);
+      
+      let errorMessage = "❌ Failed to connect to Zoho.";
+      
+      if (e.response?.data?.error) {
+        errorMessage += `\n\n**Error:** ${e.response.data.error}`;
+        if (e.response.data.error_description) {
+          errorMessage += `\n**Details:** ${e.response.data.error_description}`;
+        }
+      }
+      
+      errorMessage += "\n\nPlease try /connect again with a fresh authorization code.";
       
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         chat_id: chatId,
-        text: "❌ Failed to connect to Zoho. Please check your JSON data and try again with /connect",
+        text: errorMessage,
         parse_mode: "Markdown"
       });
       
