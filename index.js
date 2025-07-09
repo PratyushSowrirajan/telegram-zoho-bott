@@ -120,6 +120,8 @@ app.post("/telegram-webhook", async (req, res) => {
     }
   } else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
+      console.log(`📝 JSON content received from ${chatId}`);
+      
       // User has sent JSON content
       const jsonContent = text;
       
@@ -127,7 +129,9 @@ app.post("/telegram-webhook", async (req, res) => {
       let clientData;
       try {
         clientData = JSON.parse(jsonContent);
+        console.log('✅ JSON parsed successfully');
       } catch (parseError) {
+        console.log('❌ JSON parse error:', parseError.message);
         await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
           chat_id: chatId,
           text: "❌ Invalid JSON format. Please paste the exact content from self_client.json file.",
@@ -243,10 +247,72 @@ app.post("/telegram-webhook", async (req, res) => {
   } else {
     console.log(`❓ Unknown command received: "${text}"`);
     
+    // Check if this might be JSON content (fallback for lost user state)
+    if (text.startsWith('{') && text.includes('client_id') && text.includes('client_secret')) {
+      console.log('🔍 Detected potential JSON content, attempting to process...');
+      
+      try {
+        const clientData = JSON.parse(text);
+        const { client_id, client_secret, code } = clientData;
+        
+        if (client_id && client_secret && code) {
+          console.log('✅ Valid JSON detected, processing as token exchange...');
+          
+          // Process as JSON (same logic as above)
+          console.log('🔄 Attempting token exchange...');
+          
+          const tokenResponse = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
+            params: {
+              grant_type: 'authorization_code',
+              client_id: client_id,
+              client_secret: client_secret,
+              redirect_uri: 'https://www.zoho.com/crm',
+              code: code
+            },
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            }
+          });
+
+          console.log('✅ Token exchange successful!');
+          const tokens = tokenResponse.data;
+          const expiresAt = new Date(Date.now() + (tokens.expires_in * 1000));
+          
+          console.log('💾 Storing tokens in database...');
+          
+          await saveTokens({
+            chatId: chatId,
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token,
+            expiresAt: expiresAt,
+            clientId: client_id,
+            clientSecret: client_secret
+          });
+
+          console.log('✅ Tokens stored successfully!');
+
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `✅ *Connection Successful!*\n\n` +
+                  `🔑 Access token received and stored\n` +
+                  `🔄 Refresh token received and stored\n` +
+                  `⏰ Expires in: ${Math.floor(tokens.expires_in / 60)} minutes\n\n` +
+                  `🎉 Your Zoho CRM is now connected!`,
+            parse_mode: "Markdown"
+          });
+
+          res.send("Connection completed");
+          return;
+        }
+      } catch (e) {
+        console.error('❌ JSON processing error:', e.message);
+      }
+    }
+    
     // Send helpful response for unknown commands
     await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
-      text: `❓ Unknown command: "${text}"\n\n` +
+      text: `❓ Unknown command: "${text.substring(0, 50)}..."\n\n` +
             `Available commands:\n` +
             `• /connect - Set up Zoho CRM integration\n\n` +
             `Please use /connect to get started.`,
