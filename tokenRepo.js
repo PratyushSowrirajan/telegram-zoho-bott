@@ -28,7 +28,7 @@ async function saveTokens({
   `;
   
   try {
-    // Wait for database pool to be ready
+    // Wait for database pool to be ready with comprehensive checks
     console.log('🔄 Checking database pool readiness...');
     
     // First check if we have a pool object
@@ -43,9 +43,21 @@ async function saveTokens({
       await waitForPool(60000); // Wait up to 60 seconds
     }
     
-    // Final check
+    // Final check with actual connection test
     if (!pool) {
       throw new Error('Database pool is not available after waiting');
+    }
+    
+    // Test the pool connection before using it
+    console.log('🧪 Testing pool connection before saving tokens...');
+    let testClient;
+    try {
+      testClient = await pool.connect();
+      console.log('✅ Pool connection test successful');
+      testClient.release();
+    } catch (testError) {
+      console.error('❌ Pool connection test failed:', testError.message);
+      throw new Error(`Database pool connection test failed: ${testError.message}`);
     }
     
     console.log('✅ Database pool ready, executing query...');

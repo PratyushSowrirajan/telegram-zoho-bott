@@ -108,37 +108,25 @@ async function createPool() {
       keepAliveInitialDelayMillis: 0,
     });
 
-    // Test connection on startup
-    pool.connect((err, client, release) => {
-      if (err) {
-        console.error('❌ Database connection failed on startup:', err.message);
-        console.error('Connection details:', {
-          host: resolvedHost,
-          port: parseInt(dbUrl.port) || 5432,
-          ssl: process.env.NODE_ENV === 'production' ? 'enabled' : 'disabled',
-          error_code: err.code
-        });
-        
-        // If still failing, try the Node.js DNS family override approach
-        console.log('🔄 Trying Node.js DNS family override...');
-        tryNodeJSDnsOverride();
-        
-      } else {
-        console.log('✅ Database connected successfully');
-        poolReady = true;
-        release();
-      }
-    });
-    
-    // Also mark pool as ready after a successful creation
-    console.log('🔄 Pool created, marking as ready for queries...');
-    // Give it a moment to establish connections
-    setTimeout(() => {
-      if (pool && !poolReady) {
-        console.log('🔄 Force marking pool as ready after timeout...');
-        poolReady = true;
-      }
-    }, 3000);
+    // Test connection on startup with proper async handling
+    try {
+      const client = await pool.connect();
+      console.log('✅ Database connected successfully on startup');
+      poolReady = true;
+      client.release();
+    } catch (err) {
+      console.error('❌ Database connection failed on startup:', err.message);
+      console.error('Connection details:', {
+        host: resolvedHost,
+        port: parseInt(dbUrl.port) || 5432,
+        ssl: process.env.NODE_ENV === 'production' ? 'enabled' : 'disabled',
+        error_code: err.code
+      });
+      
+      // If still failing, try the Node.js DNS family override approach
+      console.log('🔄 Trying Node.js DNS family override...');
+      await tryNodeJSDnsOverride();
+    }
 
     // Handle pool errors
     pool.on('error', (err) => {
@@ -155,7 +143,7 @@ async function createPool() {
 }
 
 // Function to try Node.js DNS family override
-function tryNodeJSDnsOverride() {
+async function tryNodeJSDnsOverride() {
   console.log('🔧 Attempting Supabase pooler connection...');
   
   // Try the pooler connection first
@@ -171,54 +159,55 @@ function tryNodeJSDnsOverride() {
   });
   
   // Test the pooler connection
-  pool.connect((err, client, release) => {
-    if (err) {
-      console.error('❌ Pooler connection also failed:', err.message);
-      console.log('🔧 Attempting final DNS override...');
-      
-      // Final attempt: DNS override with original connection
-      const originalLookup = dns.lookup;
-      dns.lookup = function(hostname, options, callback) {
-        if (typeof options === 'function') {
-          callback = options;
-          options = {};
-        }
-        options = options || {};
-        options.family = 4; // Force IPv4
-        return originalLookup.call(this, hostname, options, callback);
-      };
-      
-      pool = new Pool({
-        connectionString: connectionString,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-        connectionTimeoutMillis: 15000,
-        idleTimeoutMillis: 30000,
-        max: 10,
-        keepAlive: true,
-        keepAliveInitialDelayMillis: 0,
-      });
-      
-      pool.connect((err2, client2, release2) => {
-        if (err2) {
-          console.error('❌ All connection methods exhausted:', err2.message);
-          console.error('💡 Consider using a different database provider or IPv4-compatible service');
-          poolReady = false;
-        } else {
-          console.log('✅ DNS override connection successful!');
-          poolReady = true;
-          release2();
-        }
-      });
-    } else {
-      console.log('✅ Supabase pooler connection successful!');
+  try {
+    const client = await pool.connect();
+    console.log('✅ Supabase pooler connection successful!');
+    poolReady = true;
+    client.release();
+  } catch (err) {
+    console.error('❌ Pooler connection also failed:', err.message);
+    console.log('🔧 Attempting final DNS override...');
+    
+    // Final attempt: DNS override with original connection
+    const originalLookup = dns.lookup;
+    dns.lookup = function(hostname, options, callback) {
+      if (typeof options === 'function') {
+        callback = options;
+        options = {};
+      }
+      options = options || {};
+      options.family = 4; // Force IPv4
+      return originalLookup.call(this, hostname, options, callback);
+    };
+    
+    pool = new Pool({
+      connectionString: connectionString,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
+      max: 10,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 0,
+    });
+    
+    try {
+      const client = await pool.connect();
+      console.log('✅ DNS override connection successful!');
       poolReady = true;
-      release();
+      client.release();
+    } catch (err2) {
+      console.error('❌ All connection methods exhausted:', err2.message);
+      console.error('💡 Consider using a different database provider or IPv4-compatible service');
+      poolReady = false;
     }
-  });
+  }
 }
 
-// Create the pool
-createPool();
+// Create the pool with proper error handling
+createPool().catch(error => {
+  console.error('❌ Fatal error creating database pool:', error.message);
+  poolReady = false;
+});
 
 // Test database connection function for debugging
 async function testDatabaseConnection() {
@@ -279,7 +268,7 @@ async function waitForPool(maxWaitTime = 60000) {
       throw new Error('Database pool initialization timeout');
     }
     
-    if (elapsed % 5000 === 0) {
+    if (elapsed > 0 && elapsed % 5000 === 0) {
       console.log(`⏳ Still waiting... elapsed: ${elapsed/1000}s, pool: ${!!pool}, ready: ${poolReady}`);
     }
     
@@ -290,8 +279,17 @@ async function waitForPool(maxWaitTime = 60000) {
     throw new Error('Database pool is not available');
   }
   
-  console.log(`✅ Pool is ready after ${(Date.now() - startTime)/1000}s`);
-  return pool;
+  // Actually test the connection to make sure it works
+  try {
+    const testClient = await pool.connect();
+    testClient.release();
+    console.log(`✅ Pool is ready and tested after ${(Date.now() - startTime)/1000}s`);
+    return pool;
+  } catch (testError) {
+    console.error(`❌ Pool connection test failed after ${(Date.now() - startTime)/1000}s:`, testError.message);
+    poolReady = false; // Mark as not ready since connection failed
+    throw new Error(`Database pool connection test failed: ${testError.message}`);
+  }
 }
 
 // Export both pool and test function

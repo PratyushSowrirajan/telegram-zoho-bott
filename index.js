@@ -545,5 +545,102 @@ app.post("/telegram-webhook", async (req, res) => {
   }
 });
 
+// Debug pool state endpoint
+app.get("/db-pool-state", async (req, res) => {
+  try {
+    const { pool, poolReady } = require('./db');
+    
+    let poolInfo = {
+      poolExists: !!pool,
+      poolReady: poolReady,
+      timestamp: new Date().toISOString()
+    };
+    
+    // If pool exists, get more details
+    if (pool) {
+      poolInfo = {
+        ...poolInfo,
+        totalCount: pool.totalCount,
+        idleCount: pool.idleCount,
+        waitingCount: pool.waitingCount
+      };
+      
+      // Try a test query
+      try {
+        const testClient = await pool.connect();
+        const testResult = await testClient.query('SELECT NOW() as test_time');
+        testClient.release();
+        
+        poolInfo.connectionTest = {
+          success: true,
+          testTime: testResult.rows[0].test_time
+        };
+      } catch (testError) {
+        poolInfo.connectionTest = {
+          success: false,
+          error: testError.message,
+          code: testError.code
+        };
+      }
+    }
+    
+    res.json({
+      status: "pool_debug",
+      ...poolInfo
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "pool_debug_error",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Test token save endpoint for debugging
+app.post("/test-token-save", async (req, res) => {
+  try {
+    const { saveTokens } = require('./tokenRepo');
+    
+    console.log('🧪 Testing token save functionality...');
+    
+    // Use dummy data for testing
+    const testData = {
+      chatId: '999999999', // Test chat ID
+      accessToken: 'test_access_token_' + Date.now(),
+      refreshToken: 'test_refresh_token_' + Date.now(),
+      expiresAt: new Date(Date.now() + 3600000), // 1 hour from now
+      clientId: 'test_client_id',
+      clientSecret: 'test_client_secret'
+    };
+    
+    const result = await saveTokens(testData);
+    
+    res.json({
+      status: "token_save_test_success",
+      message: "Token save test completed successfully",
+      testData: {
+        chatId: testData.chatId,
+        hasAccessToken: !!testData.accessToken,
+        hasRefreshToken: !!testData.refreshToken,
+        expiresAt: testData.expiresAt
+      },
+      result: {
+        rowCount: result.rowCount,
+        command: result.command
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Token save test failed:', error.message);
+    res.status(500).json({
+      status: "token_save_test_failed",
+      error: error.message,
+      code: error.code,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Webhook running on port ${PORT}`));
