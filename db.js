@@ -64,6 +64,19 @@ const connectionString = process.env.DATABASE_URL;
 const dbUrl = new URL(connectionString);
 console.log('Original DB host:', dbUrl.hostname);
 
+// Try to use Supabase connection pooler (may have IPv4 support)
+let modifiedConnectionString = connectionString;
+if (connectionString.includes('supabase.co') && connectionString.includes('db.')) {
+  // Replace 'db.' with 'pooler.' and add pooling mode
+  modifiedConnectionString = connectionString
+    .replace('db.', 'pooler.')
+    .replace('postgres', 'postgres')
+    .replace('5432/postgres', '6543/postgres?pgbouncer=true');
+  
+  console.log('🔄 Modified connection string to use pooler with port 6543');
+  console.log('Pooler preview:', modifiedConnectionString.substring(0, 50) + '...');
+}
+
 // Initialize pool variable
 let pool;
 
@@ -130,23 +143,12 @@ async function createPool() {
 
 // Function to try Node.js DNS family override
 function tryNodeJSDnsOverride() {
-  console.log('🔧 Attempting Node.js DNS override for IPv4...');
+  console.log('🔧 Attempting Supabase pooler connection...');
   
-  // Override Node.js DNS to prefer IPv4
-  const originalLookup = dns.lookup;
-  dns.lookup = function(hostname, options, callback) {
-    if (typeof options === 'function') {
-      callback = options;
-      options = {};
-    }
-    options = options || {};
-    options.family = 4; // Force IPv4
-    return originalLookup.call(this, hostname, options, callback);
-  };
-  
-  console.log('🔄 Creating fallback pool with DNS override...');
+  // Try the pooler connection first
+  console.log('🔄 Creating pool with Supabase pooler...');
   pool = new Pool({
-    connectionString: connectionString,
+    connectionString: modifiedConnectionString,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 30000,
@@ -155,13 +157,45 @@ function tryNodeJSDnsOverride() {
     keepAliveInitialDelayMillis: 0,
   });
   
-  // Test the override connection
+  // Test the pooler connection
   pool.connect((err, client, release) => {
     if (err) {
-      console.error('❌ DNS override connection also failed:', err.message);
-      console.error('❌ All connection methods exhausted');
+      console.error('❌ Pooler connection also failed:', err.message);
+      console.log('🔧 Attempting final DNS override...');
+      
+      // Final attempt: DNS override with original connection
+      const originalLookup = dns.lookup;
+      dns.lookup = function(hostname, options, callback) {
+        if (typeof options === 'function') {
+          callback = options;
+          options = {};
+        }
+        options = options || {};
+        options.family = 4; // Force IPv4
+        return originalLookup.call(this, hostname, options, callback);
+      };
+      
+      pool = new Pool({
+        connectionString: connectionString,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        connectionTimeoutMillis: 15000,
+        idleTimeoutMillis: 30000,
+        max: 10,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 0,
+      });
+      
+      pool.connect((err2, client2, release2) => {
+        if (err2) {
+          console.error('❌ All connection methods exhausted:', err2.message);
+          console.error('💡 Consider using a different database provider or IPv4-compatible service');
+        } else {
+          console.log('✅ DNS override connection successful!');
+          release2();
+        }
+      });
     } else {
-      console.log('✅ DNS override connection successful!');
+      console.log('✅ Supabase pooler connection successful!');
       release();
     }
   });
