@@ -30,16 +30,30 @@ async function saveTokens({
   try {
     // Wait for database pool to be ready
     console.log('🔄 Checking database pool readiness...');
-    if (!poolReady) {
-      console.log('⏳ Database pool not ready, waiting...');
-      await waitForPool(15000); // Wait up to 15 seconds
+    
+    // First check if we have a pool object
+    if (!pool) {
+      console.log('⏳ Database pool not initialized, waiting...');
+      await waitForPool(30000); // Wait up to 30 seconds
     }
     
+    // Double-check pool readiness
+    if (!poolReady) {
+      console.log('⏳ Database pool not ready, waiting...');
+      await waitForPool(30000); // Wait up to 30 seconds
+    }
+    
+    // Final check
     if (!pool) {
       throw new Error('Database pool is not available after waiting');
     }
     
     console.log('✅ Database pool ready, executing query...');
+    
+    // Test the connection before executing the actual query
+    const testClient = await pool.connect();
+    console.log('✅ Test connection successful');
+    testClient.release();
     
     const result = await pool.query(query, [
       chatId,

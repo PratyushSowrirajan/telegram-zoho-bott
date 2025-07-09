@@ -129,6 +129,16 @@ async function createPool() {
         release();
       }
     });
+    
+    // Also mark pool as ready after a successful creation
+    console.log('🔄 Pool created, marking as ready for queries...');
+    // Give it a moment to establish connections
+    setTimeout(() => {
+      if (pool && !poolReady) {
+        console.log('🔄 Force marking pool as ready after timeout...');
+        poolReady = true;
+      }
+    }, 3000);
 
     // Handle pool errors
     pool.on('error', (err) => {

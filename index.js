@@ -342,6 +342,10 @@ app.post("/telegram-webhook", async (req, res) => {
           clientSecret: client_secret ? 'present' : 'missing'
         });
         
+        // Add a small delay to ensure database is ready
+        console.log('⏳ Waiting a moment for database pool to be ready...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
         const saveResult = await saveTokens({
           chatId: chatId,
           accessToken: tokens.access_token,
@@ -464,6 +468,10 @@ app.post("/telegram-webhook", async (req, res) => {
           
           try {
             console.log('💾 Attempting to store tokens in database (fallback)...');
+            
+            // Add a small delay to ensure database is ready
+            console.log('⏳ Waiting a moment for database pool to be ready...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
             const saveResult = await saveTokens({
               chatId: chatId,
