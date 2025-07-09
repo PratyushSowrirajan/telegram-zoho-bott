@@ -255,75 +255,7 @@ app.post("/telegram-webhook", async (req, res) => {
       
       return res.status(500).json({ status: "error", message: "dbtest_failed" });
     }
-  } else if (text === '/db-query') {
-    // Test direct token storage and retrieval
-    try {
-      console.log(`🧪 Testing token storage for chat ${chatId}...`);
-      
-      // First try to store test tokens
-      const testTokens = {
-        chatId: chatId,
-        accessToken: 'test_access_' + Date.now(),
-        refreshToken: 'test_refresh_' + Date.now(),
-        expiresAt: new Date(Date.now() + 3600000), // 1 hour from now
-        clientId: 'test_client_id',
-        clientSecret: 'test_client_secret'
-      };
-      
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: "🧪 Testing token storage...",
-        parse_mode: "Markdown"
-      });
-      
-      // Try to save test tokens
-      console.log('💾 Attempting to save test tokens...');
-      await saveTokens(testTokens);
-      
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: "✅ Test tokens saved successfully!",
-        parse_mode: "Markdown"
-      });
-      
-      // Try to retrieve them
-      console.log('🔍 Attempting to retrieve test tokens...');
-      const retrieved = await getTokens(chatId);
-      
-      if (retrieved) {
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          chat_id: chatId,
-          text: `✅ Test tokens retrieved successfully!\n\n` +
-                `Stored: ${retrieved.access_token}\n` +
-                `Client ID: ${retrieved.client_id}\n` +
-                `Expires: ${retrieved.expires_at}`,
-          parse_mode: "Markdown"
-        });
-      } else {
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          chat_id: chatId,
-          text: "❌ Test tokens not found after storage",
-          parse_mode: "Markdown"
-        });
-      }
-      
-      return res.status(200).json({ status: "success", action: "db_query_completed" });
-      
-    } catch (error) {
-      console.error('❌ DB query test failed:', error);
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: `❌ Database test failed:\n\n` +
-              `Error: ${error.message}\n` +
-              `Code: ${error.code || 'N/A'}\n` +
-              `Details: ${error.detail || 'N/A'}`,
-        parse_mode: "Markdown"
-      });
-      
-      return res.status(500).json({ status: "error", message: "db_query_failed" });
-    }
-
-  } else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
+  }
     try {
       console.log(`📝 JSON content received from ${chatId}`);
       
@@ -492,112 +424,8 @@ app.post("/telegram-webhook", async (req, res) => {
       userStates.delete(chatId);
       return res.status(500).json({ status: "error", action: "token_exchange_failed" });
     }
-  } else if (text === '/check-tokens') {
-    // Check if user has tokens stored
-    try {
-      console.log(`🔍 Checking stored tokens for chat ${chatId}...`);
-      
-      const tokens = await getTokens(chatId);
-      
-      if (tokens) {
-        // Mask sensitive data
-        const maskedAccess = tokens.access_token ? 
-          tokens.access_token.substring(0, 10) + '...' : 'N/A';
-        const maskedRefresh = tokens.refresh_token ? 
-          tokens.refresh_token.substring(0, 10) + '...' : 'N/A';
-          
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          chat_id: chatId,
-          text: `✅ *Tokens Found!*\n\n` +
-                `🔑 Access Token: \`${maskedAccess}\`\n` +
-                `🔄 Refresh Token: \`${maskedRefresh}\`\n` +
-                `⏰ Expires: ${tokens.expires_at}\n` +
-                `🆔 Client ID: ${tokens.client_id || 'N/A'}\n` +
-                `📅 Updated: ${tokens.updated_at}`, 
-          parse_mode: 'Markdown'
-        });
-      } else {
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          chat_id: chatId,
-          text: '❌ No tokens found for your account.\n\n' +
-                'Use /connect to link your Zoho CRM account.'
-        });
-      }
-      
-      return res.status(200).json({ status: "success", action: "check_tokens_completed" });
-      
-    } catch (error) {
-      console.error('❌ Check tokens failed:', error);
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: `❌ Failed to check tokens:\n\n${error.message}`
-      });
-      
-      return res.status(500).json({ status: "error", message: "check_tokens_failed" });
-    }
-  } else if (text === '/table-info') {
-    // Check table structure and basic info
-    try {
-      console.log(`📋 Checking table structure...`);
-      
-      const { pool } = require('./db.js');
-      
-      // Check if table exists
-      const tableExists = await pool.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'oauth_tokens'
-        );
-      `);
-      
-      if (!tableExists.rows[0].exists) {
-        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          chat_id: chatId,
-          text: '❌ Table `oauth_tokens` does not exist!\n\n' +
-                'Please run the setup.sql script to create the table.'
-        });
-        return res.status(200).json({ status: "error", message: "table_not_found" });
-      }
-      
-      // Get table structure
-      const columns = await pool.query(`
-        SELECT column_name, data_type, is_nullable, column_default
-        FROM information_schema.columns 
-        WHERE table_name = 'oauth_tokens' 
-        ORDER BY ordinal_position;
-      `);
-      
-      // Count existing rows
-      const count = await pool.query('SELECT COUNT(*) FROM oauth_tokens');
-      
-      let response = `📋 *Table Information*\n\n`;
-      response += `✅ Table exists: oauth_tokens\n`;
-      response += `📊 Row count: ${count.rows[0].count}\n\n`;
-      response += `*Columns:*\n`;
-      
-      columns.rows.forEach(col => {
-        response += `• ${col.column_name} (${col.data_type})\n`;
-      });
-      
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: response,
-        parse_mode: 'Markdown'
-      });
-      
-      return res.status(200).json({ status: "success", action: "table_info_sent" });
-      
-    } catch (error) {
-      console.error('❌ Table info check failed:', error);
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: `❌ Failed to check table info:\n\n${error.message}`
-      });
-      
-      return res.status(500).json({ status: "error", message: "table_info_failed" });
-    }
-  } else {
+  }
+  }
     console.log(`❓ Processing non-connect message: "${text?.substring(0, 50)}..."`);
     
     // Check if this might be JSON content (fallback for lost user state)
@@ -696,10 +524,7 @@ app.post("/telegram-webhook", async (req, res) => {
         text: `❓ Unknown command: "${text?.substring(0, 50)}..."\n\n` +
               `Available commands:\n` +
               `• /connect - Set up Zoho CRM integration\n` +
-              `• /dbtest - Test database connection\n` +
-              `• /check-tokens - Check stored tokens\n` +
-              `• /db-query - Test token storage\n` +
-              `• /table-info - Check database table info\n\n` +
+              `• /dbtest - Test database connection\n\n` +
               `Please use /connect to get started.`,
         parse_mode: "Markdown"
       });
