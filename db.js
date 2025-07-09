@@ -15,10 +15,40 @@ console.log('DATABASE_URL format check:', {
 // Function to resolve hostname to IPv4
 async function resolveToIPv4(hostname) {
   return new Promise((resolve, reject) => {
+    // First try IPv4 resolution
     dns.resolve4(hostname, (err, addresses) => {
       if (err) {
         console.log(`⚠️ Failed to resolve ${hostname} to IPv4:`, err.message);
-        resolve(hostname); // Fallback to original hostname
+        
+        // Try alternative approaches for Supabase
+        if (hostname.includes('supabase.co')) {
+          console.log('🔧 Trying alternative Supabase connection methods...');
+          
+          // Method 1: Try with different subdomain
+          const altHostname = hostname.replace('db.', 'aws-0-');
+          dns.resolve4(altHostname, (err2, addresses2) => {
+            if (err2) {
+              console.log(`⚠️ Alternative hostname ${altHostname} also failed:`, err2.message);
+              
+              // Method 2: Try direct connection with pooler
+              const poolerHostname = hostname.replace('db.', 'pooler.');
+              dns.resolve4(poolerHostname, (err3, addresses3) => {
+                if (err3) {
+                  console.log(`⚠️ Pooler hostname ${poolerHostname} also failed:`, err3.message);
+                  resolve(hostname); // Fallback to original
+                } else {
+                  console.log(`✅ Resolved pooler ${poolerHostname} to IPv4:`, addresses3[0]);
+                  resolve(addresses3[0]);
+                }
+              });
+            } else {
+              console.log(`✅ Resolved alternative ${altHostname} to IPv4:`, addresses2[0]);
+              resolve(addresses2[0]);
+            }
+          });
+        } else {
+          resolve(hostname); // Fallback to original hostname for non-Supabase
+        }
       } else {
         console.log(`✅ Resolved ${hostname} to IPv4:`, addresses[0]);
         resolve(addresses[0]);
@@ -71,8 +101,14 @@ async function createPool() {
         console.error('Connection details:', {
           host: resolvedHost,
           port: parseInt(dbUrl.port) || 5432,
-          ssl: process.env.NODE_ENV === 'production' ? 'enabled' : 'disabled'
+          ssl: process.env.NODE_ENV === 'production' ? 'enabled' : 'disabled',
+          error_code: err.code
         });
+        
+        // If still failing, try the Node.js DNS family override approach
+        console.log('🔄 Trying Node.js DNS family override...');
+        tryNodeJSDnsOverride();
+        
       } else {
         console.log('✅ Database connected successfully');
         release();
@@ -87,18 +123,48 @@ async function createPool() {
   } catch (error) {
     console.error('❌ Failed to create database pool:', error.message);
     
-    // Fallback: create pool with original connectionString
-    console.log('🔄 Falling back to original connection string...');
-    pool = new Pool({
-      connectionString: connectionString,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-      connectionTimeoutMillis: 15000,
-      idleTimeoutMillis: 30000,
-      max: 10,
-      keepAlive: true,
-      keepAliveInitialDelayMillis: 0,
-    });
+    // Fallback: try Node.js DNS override
+    tryNodeJSDnsOverride();
   }
+}
+
+// Function to try Node.js DNS family override
+function tryNodeJSDnsOverride() {
+  console.log('🔧 Attempting Node.js DNS override for IPv4...');
+  
+  // Override Node.js DNS to prefer IPv4
+  const originalLookup = dns.lookup;
+  dns.lookup = function(hostname, options, callback) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    options = options || {};
+    options.family = 4; // Force IPv4
+    return originalLookup.call(this, hostname, options, callback);
+  };
+  
+  console.log('🔄 Creating fallback pool with DNS override...');
+  pool = new Pool({
+    connectionString: connectionString,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 15000,
+    idleTimeoutMillis: 30000,
+    max: 10,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 0,
+  });
+  
+  // Test the override connection
+  pool.connect((err, client, release) => {
+    if (err) {
+      console.error('❌ DNS override connection also failed:', err.message);
+      console.error('❌ All connection methods exhausted');
+    } else {
+      console.log('✅ DNS override connection successful!');
+      release();
+    }
+  });
 }
 
 // Create the pool
