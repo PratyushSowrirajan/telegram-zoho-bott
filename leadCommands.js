@@ -28,6 +28,9 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
     });
 
     // Make POST request to create a new lead
+    console.log(`📡 Making API request to create lead for ${name} with email ${email}`);
+    console.log(`🔑 Using access token: ${tokens.access_token.substring(0, 20)}...`);
+    
     const response = await axios.post('https://www.zohoapis.com/crm/v2/Leads',
       {
         data: [
@@ -45,6 +48,9 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
         }
       }
     );
+    
+    console.log(`✅ API response status: ${response.status}`);
+    console.log(`📊 API response data:`, response.data);
 
     if (response.status === 201) {
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -57,6 +63,27 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
     }
   } catch (error) {
     console.error(`❌ Error in lead creation: ${error.message}`);
+    console.error('Full error details:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      headers: error.response?.headers,
+      code: error.code
+    });
+    
+    // Send detailed error info to telegram for debugging
+    let debugMessage = `🐛 *Debug Info:*\n\n`;
+    debugMessage += `• Status: ${error.response?.status || 'No status'}\n`;
+    debugMessage += `• Error: ${error.response?.data?.message || error.message}\n`;
+    debugMessage += `• Code: ${error.response?.data?.code || error.code || 'No code'}\n`;
+    debugMessage += `• Details: ${JSON.stringify(error.response?.data || {}, null, 2)}\n`;
+    
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: debugMessage,
+      parse_mode: "Markdown"
+    });
+    
     let errorMessage = "❌ Failed to create lead. " + (error.response?.data?.message || error.message);
 
     await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
