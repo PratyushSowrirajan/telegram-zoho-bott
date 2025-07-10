@@ -755,6 +755,184 @@ app.post("/telegram-webhook", async (req, res) => {
         console.error('❌ JSON processing error:', e.message);
       }
     }
+    // Check if the message is in the "Token Exchange Successful!" format
+    else if (text && text.startsWith('✅ Token Exchange Successful!')) {
+      try {
+        console.log(`🔍 Processing Token Exchange Successful format from ${chatId}`);
+        console.log('Message content:', text.substring(0, 200) + '...');
+        
+        // Parse the "Token Exchange Successful!" message format
+        // Expected format: "✅ Token Exchange Successful!|🔑 Access Token: ...|♻️ Refresh Token: ...|⏰ Expires At: ...|🧠 Client ID: ...|🔐 Client Secret: ..."
+        
+        const parts = text.split('|');
+        console.log(`Found ${parts.length} parts in message`);
+        
+        let accessToken = null;
+        let refreshToken = null;
+        let expiresAtStr = null;
+        let clientId = null;
+        let clientSecret = null;
+        
+        // Parse each part to extract the values
+        for (const part of parts) {
+          const trimmedPart = part.trim();
+          
+          if (trimmedPart.startsWith('🔑 Access Token:')) {
+            accessToken = trimmedPart.replace('🔑 Access Token:', '').trim();
+          } else if (trimmedPart.startsWith('♻️ Refresh Token:')) {
+            refreshToken = trimmedPart.replace('♻️ Refresh Token:', '').trim();
+          } else if (trimmedPart.startsWith('⏰ Expires At:')) {
+            expiresAtStr = trimmedPart.replace('⏰ Expires At:', '').trim();
+          } else if (trimmedPart.startsWith('🧠 Client ID:')) {
+            clientId = trimmedPart.replace('🧠 Client ID:', '').trim();
+          } else if (trimmedPart.startsWith('🔐 Client Secret:')) {
+            clientSecret = trimmedPart.replace('🔐 Client Secret:', '').trim();
+          }
+        }
+        
+        console.log('Extracted values:', {
+          accessToken: accessToken ? 'present' : 'missing',
+          refreshToken: refreshToken ? 'present' : 'missing',
+          expiresAtStr: expiresAtStr ? 'present' : 'missing',
+          clientId: clientId ? 'present' : 'missing',
+          clientSecret: clientSecret ? 'present' : 'missing'
+        });
+        
+        // Validate required fields
+        if (!accessToken || !refreshToken || !expiresAtStr || !clientId || !clientSecret) {
+          const missingFields = [];
+          if (!accessToken) missingFields.push('Access Token');
+          if (!refreshToken) missingFields.push('Refresh Token');
+          if (!expiresAtStr) missingFields.push('Expires At');
+          if (!clientId) missingFields.push('Client ID');
+          if (!clientSecret) missingFields.push('Client Secret');
+          
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `❌ *Parse Error*\n\nMissing required fields: ${missingFields.join(', ')}\n\n` +
+                  `Please ensure your message contains all required token information in the correct format.`,
+            parse_mode: "Markdown"
+          });
+          return res.status(400).json({ status: "error", action: "token_format_parse_failed" });
+        }
+        
+        // Parse the expires at timestamp
+        let expiresAt;
+        try {
+          expiresAt = new Date(expiresAtStr);
+          if (isNaN(expiresAt.getTime())) {
+            throw new Error('Invalid date format');
+          }
+        } catch (dateError) {
+          console.error('❌ Failed to parse expires at timestamp:', dateError.message);
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `❌ *Date Parse Error*\n\nInvalid expiration timestamp: "${expiresAtStr}"\n\n` +
+                  `Please ensure the timestamp is in a valid format.`,
+            parse_mode: "Markdown"
+          });
+          return res.status(400).json({ status: "error", action: "token_format_date_parse_failed" });
+        }
+        
+        console.log('✅ Token Exchange format parsed successfully');
+        console.log('Parsed token details:', {
+          hasAccessToken: !!accessToken,
+          hasRefreshToken: !!refreshToken,
+          expiresAt: expiresAt.toISOString(),
+          clientId: clientId ? 'present' : 'missing',
+          clientSecret: clientSecret ? 'present' : 'missing'
+        });
+        
+        // Store tokens in database (same logic as JSON workflow, but without Zoho API call)
+        try {
+          console.log('💾 Storing tokens from Token Exchange format...');
+          
+          // Add a small delay to ensure database is ready
+          console.log('⏳ Waiting a moment for database pool to be ready...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const saveResult = await saveTokens({
+            chatId: chatId,
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresAt: expiresAt,
+            clientId: clientId,
+            clientSecret: clientSecret
+          });
+
+          console.log('✅ Tokens from Token Exchange format stored successfully!');
+          console.log('Save result:', saveResult);
+          
+          // Calculate time until expiry for display
+          const now = new Date();
+          const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+          const minutesUntilExpiry = Math.floor(timeUntilExpiry / (1000 * 60));
+
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `✅ *Token Storage Successful!*\n\n` +
+                  `🔑 Access token stored successfully\n` +
+                  `🔄 Refresh token stored successfully\n` +
+                  `⏰ Expires in: ${minutesUntilExpiry} minutes\n` +
+                  `📅 Expires at: ${expiresAt.toLocaleString()}\n\n` +
+                  `🎉 Your Zoho CRM tokens are now stored and ready to use!\n\n` +
+                  `💾 Database storage: ✅ Success`,
+            parse_mode: "Markdown"
+          });
+          
+          return res.status(200).json({ status: "success", action: "token_exchange_format_processed" });
+          
+        } catch (dbError) {
+          console.error('❌ Database storage error for Token Exchange format:', dbError.message);
+          console.error('Error details:', {
+            code: dbError.code,
+            detail: dbError.detail,
+            hint: dbError.hint,
+            position: dbError.position
+          });
+          
+          // Calculate time until expiry for display
+          const now = new Date();
+          const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+          const minutesUntilExpiry = Math.floor(timeUntilExpiry / (1000 * 60));
+          
+          // Still inform user about the tokens but DB issue
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `⚠️ *Partial Success*\n\n` +
+                  `✅ Successfully parsed token information\n` +
+                  `❌ Failed to store in database\n\n` +
+                  `🔑 *Your token info:*\n` +
+                  `Access Token: Received\n` +
+                  `Refresh Token: Received\n` +
+                  `Expires in: ${minutesUntilExpiry} minutes\n` +
+                  `Expires at: ${expiresAt.toLocaleString()}\n\n` +
+                  `🔧 Error code: ${dbError.code || 'Unknown'}\n` +
+                  `📝 Error: ${dbError.message}\n\n` +
+                  `⚠️ Please contact support about database issues.`,
+            parse_mode: "Markdown"
+          });
+          
+          return res.status(500).json({ status: "error", action: "token_exchange_format_db_failed" });
+        }
+        
+      } catch (error) {
+        console.error('❌ Token Exchange format processing error:', error.message);
+        
+        try {
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `❌ *Processing Error*\n\nFailed to process Token Exchange format: ${error.message}\n\n` +
+                  `Please ensure your message is in the correct format and try again.`,
+            parse_mode: "Markdown"
+          });
+        } catch (msgError) {
+          console.error('❌ Failed to send Token Exchange format error message:', msgError.message);
+        }
+        
+        return res.status(500).json({ status: "error", action: "token_exchange_format_processing_failed" });
+      }
+    }
     // Only process commands that start with /
     else if (text && text.startsWith('/')) {
       console.log(`❓ Processing unknown command: "${text}"`);
@@ -769,6 +947,9 @@ app.post("/telegram-webhook", async (req, res) => {
                 `• /status - Check connection and token status\n` +
                 `• /leads - Get latest leads from your CRM\n` +
                 `• /dbtest - Test database connection\n\n` +
+                `💡 *Alternative setup methods:*\n` +
+                `• Send JSON from self_client.json file\n` +
+                `• Send "Token Exchange Successful!" format message\n\n` +
                 `Please use /connect to get started.`,
           parse_mode: "Markdown"
         });
