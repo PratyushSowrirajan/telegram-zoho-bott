@@ -171,7 +171,7 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
  */
 async function handleTestLeadsCommand(chatId, BOT_TOKEN) {
   // Hardcoded access token for testing purposes
-  const TEST_ACCESS_TOKEN = "1000.1a82ee2f25b83a4a51ce97f8c987832d.9fd1402872076cb3fc1983bd2e94735d";
+  const TEST_ACCESS_TOKEN = "1000.caea110dcf13032965c5f65befcd3e8c.d0e10072e774474fb592f454626730da";
   
   try {
     console.log(`🧪 Processing /testleads command from chat ${chatId}`);

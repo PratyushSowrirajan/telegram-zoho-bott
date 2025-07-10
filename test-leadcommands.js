@@ -5,7 +5,7 @@ app.use(express.json());
 
 const BOT_TOKEN = "7803103960:AAHfeyMoir-bUGTO7LldOEHUf-DLnW46pMA";
 // Hardcoded valid Zoho access token for testing
-const ZOHO_TOKEN = "1000.1a82ee2f25b83a4a51ce97f8c987832d.9fd1402872076cb3fc1983bd2e94735d";
+const ZOHO_TOKEN = "1000.caea110dcf13032965c5f65befcd3e8c.d0e10072e774474fb592f454626730da";
 const TEST_CHAT_ID = 6541363201;
 
 // Function to fetch leads - extracted for reuse
