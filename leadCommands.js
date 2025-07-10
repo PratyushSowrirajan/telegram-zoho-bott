@@ -166,6 +166,145 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
 
 
 
+/**
+ * Handle /testleads command - test fetch leads with hardcoded token for debugging
+ */
+async function handleTestLeadsCommand(chatId, BOT_TOKEN) {
+  // Hardcoded access token for testing purposes
+  const TEST_ACCESS_TOKEN = "1000.1a82ee2f25b83a4a51ce97f8c987832d.9fd1402872076cb3fc1983bd2e94735d";
+  
+  try {
+    console.log(`🧪 Processing /testleads command from chat ${chatId}`);
+    
+    // Send initial message
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: "🧪 *Testing Leads Fetch...*\n\nUsing hardcoded access token for debugging, please wait...",
+      parse_mode: "Markdown"
+    });
+    
+    console.log(`📡 Fetching leads from Zoho CRM for chat ${chatId} using test token`);
+    console.log(`🔑 Using test access token: ${TEST_ACCESS_TOKEN.substring(0, 20)}...`);
+    
+    // Fetch leads from Zoho CRM using hardcoded token
+    const response = await axios.get("https://www.zohoapis.in/crm/v2/Leads", {
+      headers: { 
+        Authorization: `Zoho-oauthtoken ${TEST_ACCESS_TOKEN.trim()}`
+      },
+      params: {
+        sort_by: 'Created_Time',
+        sort_order: 'desc',
+        per_page: 5
+      }
+    });
+
+    console.log(`✅ Successfully fetched leads for chat ${chatId} using test token`);
+    console.log(`📊 Lead count: ${response.data.data?.length || 0}`);
+    
+    const leads = response.data.data;
+    
+    if (!leads || leads.length === 0) {
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: `🧪 *Test Leads Results*\n\n` +
+              `📭 No leads found in your CRM.\n\n` +
+              `✅ Token is valid - API call succeeded\n` +
+              `💡 Add some leads to your Zoho CRM to see them here!\n\n` +
+              `🔑 Using test token: ${TEST_ACCESS_TOKEN.substring(0, 20)}...`,
+        parse_mode: "Markdown"
+      });
+      
+      return { success: true, leadCount: 0 };
+    }
+    
+    // Format leads message
+    let reply = "🧪 *Test Leads Results:*\n\n";
+    
+    leads.forEach((lead, i) => {
+      const firstName = lead.First_Name || "";
+      const lastName = lead.Last_Name || "";
+      const fullName = `${firstName} ${lastName}`.trim() || "Unnamed Lead";
+      const phone = lead.Phone || "-";
+      const email = lead.Email || "-";
+      const company = lead.Company || "-";
+      
+      reply += `${i + 1}. 👤 ${fullName} | 📞 ${phone} | ✉️ ${email} | 🏢 ${company}\n`;
+    });
+    
+    // Add footer
+    reply += `\n🔄 Last updated: ${new Date().toLocaleTimeString()}`;
+    reply += `\n🧪 Test Mode - Using hardcoded token`;
+    reply += `\n🔑 Token: ${TEST_ACCESS_TOKEN.substring(0, 20)}...`;
+    reply += `\n✅ API call successful!`;
+
+    // Send leads to user
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: reply,
+      parse_mode: "Markdown"
+    });
+
+    console.log(`✅ Test leads sent successfully to chat ${chatId}`);
+    
+    return {
+      success: true,
+      leadCount: leads.length,
+      testMode: true
+    };
+
+  } catch (error) {
+    console.error(`❌ Error in /testleads command for chat ${chatId}:`, error.message);
+    console.error('Error details:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      code: error.code
+    });
+    
+    let errorMessage = "❌ *Test Leads Error*\n\n";
+    
+    if (error.response?.status === 401) {
+      errorMessage += `🔐 Test token is invalid or expired.\n\n` +
+                     `The hardcoded token: ${TEST_ACCESS_TOKEN.substring(0, 20)}...\n` +
+                     `is not working. Please get a fresh token and update the code.\n\n` +
+                     `Error: ${error.response.data?.message || 'Invalid OAuth token'}`;
+    } else if (error.response?.status === 403) {
+      errorMessage += `🚫 Access denied with test token.\n\n` +
+                     `The token may not have the required CRM permissions.`;
+    } else if (error.response?.status === 429) {
+      errorMessage += `⏳ Rate limit exceeded.\n\n` +
+                     `Please wait a moment and try again.`;
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      errorMessage += `🌐 Network connection error.\n\n` +
+                     `Please check your internet connection and try again.`;
+    } else {
+      errorMessage += `📝 ${error.message}\n\n`;
+      if (error.response?.data?.message) {
+        errorMessage += `Details: ${error.response.data.message}\n\n`;
+      }
+      errorMessage += `Test token: ${TEST_ACCESS_TOKEN.substring(0, 20)}...`;
+    }
+    
+    try {
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: errorMessage,
+        parse_mode: "Markdown"
+      });
+    } catch (sendError) {
+      console.error(`❌ Failed to send error message to chat ${chatId}:`, sendError.message);
+    }
+    
+    return {
+      success: false,
+      error: error.message,
+      statusCode: error.response?.status,
+      testMode: true
+    };
+  }
+}
+
 module.exports = {
-  handleLeadsCommand
+  handleLeadsCommand,
+  handleTestLeadsCommand
 };

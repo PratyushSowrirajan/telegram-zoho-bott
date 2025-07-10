@@ -441,6 +441,22 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "leads_failed" });
     }
   }
+  // Test leads command with hardcoded token for debugging
+  else if (text === "/testleads") {
+    try {
+      const { handleTestLeadsCommand } = require('./leadCommands');
+      const result = await handleTestLeadsCommand(chatId, BOT_TOKEN);
+      return res.status(200).json({ 
+        status: "success", 
+        action: "testleads_completed",
+        leadCount: result.leadCount,
+        testMode: true
+      });
+    } catch (error) {
+      console.error("❌ Error in testleads command:", error.message);
+      return res.status(500).json({ status: "error", message: "testleads_failed" });
+    }
+  }
   // Check if user is in the waiting state for JSON (only when they sent /connect first)
   else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
