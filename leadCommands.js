@@ -60,14 +60,6 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
   }
 }
 
-module.exports = {
-  handleLeadsCommand,
-  handleTestLeadsCommand,
-  handleTestAccessCommand,
-  handleLeadCreationCommand
-};
-
-const axios = require("axios");
 const { getValidAccessToken } = require('./tokenRefresh');
 
 /**
@@ -574,5 +566,6 @@ async function handleTestAccessCommand(chatId, BOT_TOKEN) {
 module.exports = {
   handleLeadsCommand,
   handleTestLeadsCommand,
-  handleTestAccessCommand
+  handleTestAccessCommand,
+  handleLeadCreationCommand
 };
