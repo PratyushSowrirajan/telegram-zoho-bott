@@ -51,7 +51,7 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
     console.log(`📡 Fetching leads from Zoho CRM for chat ${chatId}`);
     console.log(`🔑 Using access token: ${tokenResult.accessToken.substring(0, 20)}...`);
     
-    const response = await axios.get("https://www.zohoapis.in/crm/v2/Leads", {
+    const response = await axios.get("https://www.zohoapis.com/crm/v2/Leads", {
       headers: { 
         Authorization: `Zoho-oauthtoken ${tokenResult.accessToken.trim()}`
       },
@@ -187,7 +187,7 @@ async function handleTestLeadsCommand(chatId, BOT_TOKEN) {
     console.log(`🔑 Using test access token: ${TEST_ACCESS_TOKEN.substring(0, 20)}...`);
     
     // Fetch leads from Zoho CRM using hardcoded token
-    const response = await axios.get("https://www.zohoapis.in/crm/v2/Leads", {
+    const response = await axios.get("https://www.zohoapis.com/crm/v2/Leads", {
       headers: { 
         Authorization: `Zoho-oauthtoken ${TEST_ACCESS_TOKEN.trim()}`
       },

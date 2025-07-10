@@ -369,7 +369,7 @@ app.post("/telegram-webhook", async (req, res) => {
       let apiError = null;
       
       try {
-        const testResponse = await axios.get('https://www.zohoapis.in/crm/v2/org', {
+        const testResponse = await axios.get('https://www.zohoapis.com/crm/v2/org', {
           headers: { 
             Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
             'Content-Type': 'application/json'
@@ -1041,7 +1041,7 @@ app.get('/debug-tokens/:chatId', async (req, res) => {
     let zohoPongResponse = null;
     
     try {
-      const testResponse = await axios.get('https://www.zohoapis.in/crm/v2/org', {
+      const testResponse = await axios.get('https://www.zohoapis.com/crm/v2/org', {
         headers: { 
           Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
           'Content-Type': 'application/json'
