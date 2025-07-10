@@ -486,6 +486,33 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "testaccess_failed" });
     }
   }
+  // Manual token exchange command for testing
+  else if (text === "/manualtoken") {
+    try {
+      console.log(`🔧 Processing /manualtoken command from chat ${chatId}`);
+      
+      // Send instructions for manual token entry
+      const instructions = `🔧 *Manual Token Exchange Test*\n\n` +
+        `Please reply with a message in this exact format:\n\n` +
+        `\`✅ Token Exchange Successful!|🔑 Access Token: YOUR_ACCESS_TOKEN|♻️ Refresh Token: YOUR_REFRESH_TOKEN|⏰ Expires At: TIMESTAMP|🧠 Client ID: YOUR_CLIENT_ID|🔐 Client Secret: YOUR_CLIENT_SECRET\`\n\n` +
+        `📝 *Example:*\n` +
+        `✅ Token Exchange Successful!|🔑 Access Token: 1000.abc123...|♻️ Refresh Token: 1000.def456...|⏰ Expires At: 1752174756600|🧠 Client ID: 1000.XYZ789|🔐 Client Secret: abc123def456\n\n` +
+        `⚠️ Make sure there are no extra spaces and the timestamp is in milliseconds format.\n\n` +
+        `💡 This command helps test the token exchange workflow manually.`;
+
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: instructions,
+        parse_mode: "Markdown"
+      });
+      
+      return res.status(200).json({ status: "success", action: "manualtoken_instructions_sent" });
+      
+    } catch (error) {
+      console.error("❌ Error in manualtoken command:", error.message);
+      return res.status(500).json({ status: "error", message: "manualtoken_failed" });
+    }
+  }
   // Check if user is in the waiting state for JSON (only when they sent /connect first)
   else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
@@ -819,15 +846,43 @@ app.post("/telegram-webhook", async (req, res) => {
         // Parse the expires at timestamp
         let expiresAt;
         try {
-          expiresAt = new Date(expiresAtStr);
-          if (isNaN(expiresAt.getTime())) {
-            throw new Error('Invalid date format');
+          // Handle different timestamp formats
+          let timestamp = expiresAtStr;
+          
+          // If it's a pure number string (milliseconds), convert to number
+          if (/^\d+$/.test(timestamp)) {
+            timestamp = parseInt(timestamp);
+            
+            // If timestamp is in milliseconds (13+ digits), use as is
+            // If timestamp is in seconds (10 digits), convert to milliseconds
+            if (timestamp.toString().length <= 10) {
+              timestamp = timestamp * 1000;
+            }
           }
+          
+          expiresAt = new Date(timestamp);
+          
+          if (isNaN(expiresAt.getTime())) {
+            throw new Error('Invalid date format after conversion');
+          }
+          
+          console.log('✅ Timestamp parsed successfully:', {
+            original: expiresAtStr,
+            converted: timestamp,
+            parsedDate: expiresAt.toISOString()
+          });
+          
         } catch (dateError) {
           console.error('❌ Failed to parse expires at timestamp:', dateError.message);
+          console.error('Original timestamp string:', expiresAtStr);
+          
           await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
             chat_id: chatId,
             text: `❌ *Date Parse Error*\n\nInvalid expiration timestamp: "${expiresAtStr}"\n\n` +
+                  `Debug info:\n` +
+                  `• Original: ${expiresAtStr}\n` +
+                  `• Type: ${typeof expiresAtStr}\n` +
+                  `• Length: ${expiresAtStr.length}\n\n` +
                   `Please ensure the timestamp is in a valid format.`,
             parse_mode: "Markdown"
           });
@@ -946,7 +1001,8 @@ app.post("/telegram-webhook", async (req, res) => {
                 `• /connect - Set up Zoho CRM integration\n` +
                 `• /status - Check connection and token status\n` +
                 `• /leads - Get latest leads from your CRM\n` +
-                `• /dbtest - Test database connection\n\n` +
+                `• /dbtest - Test database connection\n` +
+                `• /manualtoken - Manual token exchange test\n\n` +
                 `💡 *Alternative setup methods:*\n` +
                 `• Send JSON from self_client.json file\n` +
                 `• Send "Token Exchange Successful!" format message\n\n` +
@@ -1323,6 +1379,165 @@ app.get('/debug-refresh/:chatId', async (req, res) => {
       success: false,
       error: error.message,
       chatId: chatId
+    });
+  }
+});
+
+// Test endpoint for token exchange format (for testing purposes)
+app.post("/test-token-exchange-format", async (req, res) => {
+  try {
+    const { chatId, message } = req.body;
+    
+    if (!chatId || !message) {
+      return res.status(400).json({
+        status: "error",
+        message: "chatId and message are required"
+      });
+    }
+    
+    console.log(`🧪 Testing Token Exchange format for chat ${chatId}`);
+    console.log('Test message:', message.substring(0, 200) + '...');
+    
+    // Simulate the same processing logic as in the webhook
+    if (message.startsWith('✅ Token Exchange Successful!')) {
+      const parts = message.split('|');
+      console.log(`Found ${parts.length} parts in test message`);
+      
+      let accessToken = null;
+      let refreshToken = null;
+      let expiresAtStr = null;
+      let clientId = null;
+      let clientSecret = null;
+      
+      // Parse each part to extract the values
+      for (const part of parts) {
+        const trimmedPart = part.trim();
+        
+        if (trimmedPart.startsWith('🔑 Access Token:')) {
+          accessToken = trimmedPart.replace('🔑 Access Token:', '').trim();
+        } else if (trimmedPart.startsWith('♻️ Refresh Token:')) {
+          refreshToken = trimmedPart.replace('♻️ Refresh Token:', '').trim();
+        } else if (trimmedPart.startsWith('⏰ Expires At:')) {
+          expiresAtStr = trimmedPart.replace('⏰ Expires At:', '').trim();
+        } else if (trimmedPart.startsWith('🧠 Client ID:')) {
+          clientId = trimmedPart.replace('🧠 Client ID:', '').trim();
+        } else if (trimmedPart.startsWith('🔐 Client Secret:')) {
+          clientSecret = trimmedPart.replace('🔐 Client Secret:', '').trim();
+        }
+      }
+      
+      console.log('Test extracted values:', {
+        accessToken: accessToken ? 'present' : 'missing',
+        refreshToken: refreshToken ? 'present' : 'missing',
+        expiresAtStr: expiresAtStr ? 'present' : 'missing',
+        clientId: clientId ? 'present' : 'missing',
+        clientSecret: clientSecret ? 'present' : 'missing'
+      });
+      
+      // Validate required fields
+      if (!accessToken || !refreshToken || !expiresAtStr || !clientId || !clientSecret) {
+        const missingFields = [];
+        if (!accessToken) missingFields.push('Access Token');
+        if (!refreshToken) missingFields.push('Refresh Token');
+        if (!expiresAtStr) missingFields.push('Expires At');
+        if (!clientId) missingFields.push('Client ID');
+        if (!clientSecret) missingFields.push('Client Secret');
+        
+        return res.status(400).json({
+          status: "error",
+          message: `Missing required fields: ${missingFields.join(', ')}`
+        });
+      }
+      
+      // Parse the expires at timestamp
+      let expiresAt;
+      try {
+        // Handle different timestamp formats
+        let timestamp = expiresAtStr;
+        
+        // If it's a pure number string (milliseconds), convert to number
+        if (/^\d+$/.test(timestamp)) {
+          timestamp = parseInt(timestamp);
+          
+          // If timestamp is in milliseconds (13+ digits), use as is
+          // If timestamp is in seconds (10 digits), convert to milliseconds
+          if (timestamp.toString().length <= 10) {
+            timestamp = timestamp * 1000;
+          }
+        }
+        
+        expiresAt = new Date(timestamp);
+        
+        if (isNaN(expiresAt.getTime())) {
+          throw new Error('Invalid date format after conversion');
+        }
+        
+        console.log('✅ Test timestamp parsed successfully:', {
+          original: expiresAtStr,
+          converted: timestamp,
+          parsedDate: expiresAt.toISOString()
+        });
+        
+      } catch (dateError) {
+        console.error('❌ Test date parse error:', dateError.message);
+        return res.status(400).json({
+          status: "error",
+          message: `Date parse error: ${dateError.message}`,
+          originalTimestamp: expiresAtStr
+        });
+      }
+      
+      // Store tokens in database
+      try {
+        console.log('💾 Test storing tokens...');
+        
+        const saveResult = await saveTokens({
+          chatId: chatId,
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+          expiresAt: expiresAt,
+          clientId: clientId,
+          clientSecret: clientSecret
+        });
+
+        console.log('✅ Test tokens stored successfully!');
+        
+        // Calculate time until expiry for display
+        const now = new Date();
+        const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+        const minutesUntilExpiry = Math.floor(timeUntilExpiry / (1000 * 60));
+
+        return res.json({
+          status: "success",
+          message: "Token Exchange format processed successfully",
+          tokenInfo: {
+            chatId: chatId,
+            expiresAt: expiresAt.toISOString(),
+            minutesUntilExpiry: minutesUntilExpiry,
+            databaseStored: true
+          }
+        });
+        
+      } catch (dbError) {
+        console.error('❌ Test database storage error:', dbError.message);
+        return res.status(500).json({
+          status: "error",
+          message: `Database error: ${dbError.message}`,
+          code: dbError.code
+        });
+      }
+    } else {
+      return res.status(400).json({
+        status: "error",
+        message: "Message does not start with '✅ Token Exchange Successful!'"
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Test endpoint error:', error.message);
+    return res.status(500).json({
+      status: "error",
+      message: error.message
     });
   }
 });
