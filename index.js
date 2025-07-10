@@ -3,7 +3,7 @@ const axios = require("axios");
 const { saveTokens, getTokens, areTokensExpired } = require('./tokenRepo');
 const { testDatabaseConnection } = require('./db');
 const { startBackgroundRefresh, getValidAccessToken, refreshAccessToken } = require('./tokenRefresh');
-const { handleLeadsCommand, handleLeadsCountCommand } = require('./leadCommands');
+const { handleLeadsCommand } = require('./leadCommands');
 const app = express();
 app.use(express.json());
 
@@ -441,22 +441,7 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "leads_failed" });
     }
   }
-  // Leads count command to get lead statistics
-  else if (text === "/leads_count") {
-    try {
-      const result = await handleLeadsCountCommand(chatId, BOT_TOKEN);
-      return res.status(200).json({ 
-        status: "success", 
-        action: "leads_count_completed",
-        totalLeads: result.totalLeads,
-        statusCounts: result.statusCounts
-      });
-    } catch (error) {
-      console.error("❌ Error in leads_count command:", error.message);
-      return res.status(500).json({ status: "error", message: "leads_count_failed" });
-    }
-  }
-  // Check if user is in the waiting state or if the message contains JSON
+  // Check if user is in the waiting state for JSON (only when they sent /connect first)
   else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
       console.log(`📝 JSON content received from ${chatId}`);
@@ -725,26 +710,33 @@ app.post("/telegram-webhook", async (req, res) => {
         console.error('❌ JSON processing error:', e.message);
       }
     }
-    
-    // Send helpful response for unknown commands
-    try {
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: `❓ Unknown command: "${text?.substring(0, 50)}..."\n\n` +
-              `Available commands:\n` +
-              `• /connect - Set up Zoho CRM integration\n` +
-              `• /status - Check connection and token status\n` +
-              `• /leads - Get latest leads from your CRM\n` +
-              `• /leads_count - Get lead statistics by status\n` +
-              `• /dbtest - Test database connection\n\n` +
-              `Please use /connect to get started.`,
-        parse_mode: "Markdown"
-      });
-    } catch (msgError) {
-      console.error('Failed to send unknown command response:', msgError.message);
+    // Only process commands that start with /
+    else if (text && text.startsWith('/')) {
+      console.log(`❓ Processing unknown command: "${text}"`);
+      
+      // Send helpful response for unknown commands
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `❓ Unknown command: "${text}"\n\n` +
+                `Available commands:\n` +
+                `• /connect - Set up Zoho CRM integration\n` +
+                `• /status - Check connection and token status\n` +
+                `• /leads - Get latest leads from your CRM\n` +
+                `• /dbtest - Test database connection\n\n` +
+                `Please use /connect to get started.`,
+          parse_mode: "Markdown"
+        });
+      } catch (msgError) {
+        console.error('Failed to send unknown command response:', msgError.message);
+      }
+      
+      return res.status(200).json({ status: "ok", action: "unknown_command_handled" });
+    } else {
+      // Ignore regular text messages (like "kd")
+      console.log(`📝 Ignoring regular text message: "${text}"`);
+      return res.status(200).json({ status: "ok", action: "text_message_ignored" });
     }
-    
-    return res.status(200).json({ status: "ok", action: "unknown_command_handled" });
   }
 });
 
