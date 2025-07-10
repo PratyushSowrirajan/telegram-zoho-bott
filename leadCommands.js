@@ -1,4 +1,73 @@
 const axios = require("axios");
+const { getTokens } = require('./tokenRepo');
+
+/**
+ * Handle /leadcreation command - Create a new lead in Zoho CRM
+ */
+async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
+  try {
+    const matches = text.match(/\/leadcreation_(\w+)_(\S+@\S+\.\S+)/);
+    if (!matches) {
+      throw new Error('Invalid command format. Use /leadcreation_Name_email');
+    }
+    
+    const name = matches[1];
+    const email = matches[2];
+    
+    // Fetch access token
+    const tokens = await getTokens(chatId);
+    if (!tokens) {
+      throw new Error('No access token found. Please connect your Zoho CRM using /connect');
+    }
+    
+    // Make POST request to create a new lead
+    const response = await axios.post('https://www.zohoapis.com/crm/v2/Leads',
+      {
+        data: [
+          {
+            "First_Name": name,
+            "Email": email,
+            "Lead_Source": "Telegram"
+          }
+        ]
+      },
+      {
+        headers: { 
+          Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (response.status === 201) {
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: `✅ Lead created successfully!\nName: ${name}\nEmail: ${email}`,
+        parse_mode: "Markdown"
+      });
+    } else {
+      throw new Error('Failed to create lead. Please try again.');
+    }
+  } catch (error) {
+    console.error(`❌ Error in lead creation: ${error.message}`);
+    let errorMessage = "❌ Failed to create lead. " + (error.response?.data?.message || error.message);
+
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: errorMessage,
+      parse_mode: "Markdown"
+    });
+  }
+}
+
+module.exports = {
+  handleLeadsCommand,
+  handleTestLeadsCommand,
+  handleTestAccessCommand,
+  handleLeadCreationCommand
+};
+
+const axios = require("axios");
 const { getValidAccessToken } = require('./tokenRefresh');
 
 /**
