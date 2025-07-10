@@ -2,7 +2,7 @@ const axios = require("axios");
 const { getValidAccessToken } = require('./tokenRefresh');
 
 /**
- * Handle /leads command - fetch latest leads from Zoho CRM
+ * Handle /leads command - fetch latest leads from Zoho CRM using database token
  */
 async function handleLeadsCommand(chatId, BOT_TOKEN) {
   try {
@@ -15,45 +15,50 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
       parse_mode: "Markdown"
     });
     
-    // Get valid access token for the user
-    const tokenResult = await getValidAccessToken(chatId);
+    // Import database functions (same as /testaccess)
+    const { getTokens } = require('./tokenRepo');
     
-    if (!tokenResult.success) {
-      let errorMessage = "❌ *Unable to Access Zoho CRM*\n\n";
-      
-      if (tokenResult.needsReconnect) {
-        errorMessage += `🔗 Your Zoho connection has expired or is invalid.\n\n` +
-                      `Please use /connect to reconnect your account.`;
-      } else {
-        errorMessage += `❗ Error: ${tokenResult.error}\n\n` +
-                       `Please try /connect to set up your connection.`;
-      }
-      
+    console.log(`📊 Fetching tokens from database for chat ${chatId}`);
+    
+    // Fetch tokens from database (same as /testaccess)
+    const tokens = await getTokens(chatId);
+    
+    if (!tokens) {
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         chat_id: chatId,
-        text: errorMessage,
+        text: `📋 *Unable to Fetch Leads*\n\n` +
+              `❌ No tokens found in database\n\n` +
+              `📊 Chat ID: \`${chatId}\`\n` +
+              `🗄️ Database query: Searched telegram_user_id = ${chatId}\n\n` +
+              `💡 Use /connect to set up your Zoho CRM connection first!`,
         parse_mode: "Markdown"
       });
       
-      return {
-        success: false,
-        error: tokenResult.error,
-        needsReconnect: tokenResult.needsReconnect
-      };
+      return { success: false, error: 'No tokens found', chatId: chatId };
     }
     
-    console.log(`🔑 Valid access token obtained for chat ${chatId}`);
-    if (tokenResult.wasRefreshed) {
-      console.log(`🔄 Token was refreshed for chat ${chatId}`);
+    console.log(`✅ Found tokens in database for chat ${chatId}`);
+    console.log(`🔑 Using access token: ${tokens.access_token.substring(0, 20)}...`);
+    
+    // Check token expiry (informational)
+    const now = new Date();
+    const expiresAt = new Date(tokens.expires_at);
+    const isExpired = now >= expiresAt;
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+    const minutesUntilExpiry = Math.floor(timeUntilExpiry / (1000 * 60));
+    
+    if (isExpired) {
+      console.log(`⚠️ Warning: Token appears expired for chat ${chatId}, but attempting anyway...`);
+    } else {
+      console.log(`✅ Token valid for ${minutesUntilExpiry} more minutes for chat ${chatId}`);
     }
     
-    // Fetch leads from Zoho CRM
-    console.log(`📡 Fetching leads from Zoho CRM for chat ${chatId}`);
-    console.log(`🔑 Using access token: ${tokenResult.accessToken.substring(0, 20)}...`);
+    // Fetch leads from Zoho CRM using database token (same as /testleads)
+    console.log(`📡 Fetching leads from Zoho CRM for chat ${chatId} using database token`);
     
     const response = await axios.get("https://www.zohoapis.com/crm/v2/Leads", {
       headers: { 
-        Authorization: `Zoho-oauthtoken ${tokenResult.accessToken.trim()}`
+        Authorization: `Zoho-oauthtoken ${tokens.access_token.trim()}`
       },
       params: {
         sort_by: 'Created_Time',
@@ -62,7 +67,7 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
       }
     });
 
-    console.log(`✅ Successfully fetched leads for chat ${chatId}`);
+    console.log(`✅ Successfully fetched leads for chat ${chatId} using database token`);
     console.log(`📊 Lead count: ${response.data.data?.length || 0}`);
     
     const leads = response.data.data;
@@ -72,14 +77,16 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
         chat_id: chatId,
         text: `📋 *Latest Leads*\n\n` +
               `📭 No leads found in your CRM.\n\n` +
-              `💡 Add some leads to your Zoho CRM to see them here!`,
+              `✅ Database token used successfully\n` +
+              `💡 Add some leads to your Zoho CRM to see them here!\n\n` +
+              `🔑 Token: ${tokens.access_token.substring(0, 20)}...`,
         parse_mode: "Markdown"
       });
       
-      return { success: true, leadCount: 0 };
+      return { success: true, leadCount: 0, usedDatabaseToken: true };
     }
     
-    // Format leads message
+    // Format leads message (same as /testleads)
     let reply = "📋 *Latest Leads:*\n\n";
     
     leads.forEach((lead, i) => {
@@ -93,10 +100,14 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
       reply += `${i + 1}. 👤 ${fullName} | 📞 ${phone} | ✉️ ${email} | 🏢 ${company}\n`;
     });
     
-    // Add footer
+    // Add footer with database token info
     reply += `\n🔄 Last updated: ${new Date().toLocaleTimeString()}`;
-    if (tokenResult.wasRefreshed) {
-      reply += `\n🆕 Token refreshed automatically`;
+    reply += `\n💾 Using database token`;
+    reply += `\n🔑 Token: ${tokens.access_token.substring(0, 20)}...`;
+    if (isExpired) {
+      reply += `\n⚠️ Token appears expired but worked!`;
+    } else {
+      reply += `\n✅ Token valid for ${minutesUntilExpiry}m`;
     }
 
     // Send leads to user
@@ -106,12 +117,13 @@ async function handleLeadsCommand(chatId, BOT_TOKEN) {
       parse_mode: "Markdown"
     });
 
-    console.log(`✅ Leads sent successfully to chat ${chatId}`);
+    console.log(`✅ Leads sent successfully to chat ${chatId} using database token`);
     
     return {
       success: true,
       leadCount: leads.length,
-      wasTokenRefreshed: tokenResult.wasRefreshed
+      usedDatabaseToken: true,
+      tokenExpired: isExpired
     };
 
   } catch (error) {
