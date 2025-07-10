@@ -1,3 +1,65 @@
+async function handleLeadInfoCommand(chatId, BOT_TOKEN, text) {
+  try {
+    const matches = text.match(/\/leadinfo_(\d+)/);
+    if (!matches) {
+      throw new Error('Invalid command format. Use /leadinfo_leadid');
+    }
+    
+    const leadId = matches[1];
+    console.log(`📘 Processing /leadinfo command for lead ID: ${leadId}`);
+
+    // Fetch access token
+    const tokens = await getTokens(chatId);
+    if (!tokens) {
+      throw new Error('No access token found. Please connect your Zoho CRM using /connect');
+    }
+    
+    // Send initial message
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: `📘 *Fetching Lead Info...*\n\nRetrieving details for lead ID: ${leadId}, please wait...`,
+      parse_mode: "Markdown"
+    });
+
+    // Make API request to fetch lead details
+    const response = await axios.get(`https://www.zohoapis.com/crm/v2/Leads/${leadId}`, {
+      headers: { 
+        Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // Parse lead details
+    if (response.data && response.data.data && response.data.data.length > 0) {
+      const lead = response.data.data[0];
+      let reply = `📘 *Lead Details:*\n\n`;
+      reply += `• Name: ${lead.First_Name || ''} ${lead.Last_Name || ''}\n`;
+      reply += `• Company: ${lead.Company || 'N/A'}\n`;
+      reply += `• Email: ${lead.Email || 'N/A'}\n`;
+      reply += `• Phone: ${lead.Phone || 'N/A'}\n`;
+      reply += `• Lead Source: ${lead.Lead_Source || 'N/A'}\n`;
+      reply += `• Status: ${lead.Status || 'N/A'}\n`;
+      
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: reply,
+        parse_mode: "Markdown"
+      });
+      console.log(`✅ Lead info sent for lead ID: ${leadId}`);
+    } else {
+      throw new Error('Lead not found. Please check the lead ID and try again.');
+    }
+  } catch (error) {
+    console.error(`❌ Error fetching lead info: ${error.message}`);
+    let errorMessage = "❌ Failed to fetch lead info. " + (error.response?.data?.message || error.message);
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: errorMessage,
+      parse_mode: "Markdown"
+    });
+  }
+}
+
 const axios = require("axios");
 const { getTokens } = require('./tokenRepo');
 
@@ -610,5 +672,6 @@ module.exports = {
   handleLeadsCommand,
   handleTestLeadsCommand,
   handleTestAccessCommand,
-  handleLeadCreationCommand
+  handleLeadCreationCommand,
+  handleLeadInfoCommand
 };

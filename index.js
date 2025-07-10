@@ -221,6 +221,18 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "lead_creation_failed" });
     }
   }
+  // Handle lead info command
+  else if (text.startsWith("/leadinfo_")) {
+    try {
+      console.log(`📘 Processing /leadinfo command from chat ${chatId}`);
+      const { handleLeadInfoCommand } = require('./leadCommands');
+      await handleLeadInfoCommand(chatId, BOT_TOKEN, text);
+      return res.status(200).json({ status: "success", action: "lead_info_completed" });
+    } catch (error) {
+      console.error("❌ Error in lead info command:", error.message);
+      return res.status(500).json({ status: "error", message: "lead_info_failed" });
+    }
+  }
   // Database test command for debugging
   else if (text === "/dbtest") {
     try {
