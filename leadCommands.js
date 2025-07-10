@@ -36,8 +36,10 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
         data: [
           {
             "First_Name": name,
+            "Last_Name": ".", // Adding mandatory Last_Name field
             "Email": email,
-            "Lead_Source": "Telegram"
+            "Lead_Source": "Telegram",
+            "Company": "Unknown" // Adding mandatory Company field
           }
         ]
       },
@@ -52,12 +54,19 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
     console.log(`✅ API response status: ${response.status}`);
     console.log(`📊 API response data:`, response.data);
 
-    if (response.status === 201) {
-      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: `✅ Lead created successfully!\nName: ${name}\nEmail: ${email}`,
-        parse_mode: "Markdown"
-      });
+    if (response.status === 201 || response.status === 202) {
+      // Check if the response contains success data
+      if (response.data && response.data.data && response.data.data[0] && response.data.data[0].code !== 'MANDATORY_NOT_FOUND') {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `✅ Lead created successfully!\nName: ${name}\nEmail: ${email}`,
+          parse_mode: "Markdown"
+        });
+      } else {
+        // Parse the detailed error from Zoho's response
+        const errorDetails = response.data?.data?.[0] || {};
+        throw new Error(`Zoho CRM Error: ${errorDetails.message || 'Unknown error'} (Code: ${errorDetails.code || 'Unknown'})`);
+      }
     } else {
       throw new Error('Failed to create lead. Please try again.');
     }
