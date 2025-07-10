@@ -457,6 +457,23 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "testleads_failed" });
     }
   }
+  // Test access command to fetch token from database for debugging
+  else if (text === "/testaccess") {
+    try {
+      const { handleTestAccessCommand } = require('./leadCommands');
+      const result = await handleTestAccessCommand(chatId, BOT_TOKEN);
+      return res.status(200).json({ 
+        status: "success", 
+        action: "testaccess_completed",
+        tokenFound: result.tokenFound,
+        isExpired: result.isExpired,
+        testMode: true
+      });
+    } catch (error) {
+      console.error("❌ Error in testaccess command:", error.message);
+      return res.status(500).json({ status: "error", message: "testaccess_failed" });
+    }
+  }
   // Check if user is in the waiting state for JSON (only when they sent /connect first)
   else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {

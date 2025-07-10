@@ -304,7 +304,194 @@ async function handleTestLeadsCommand(chatId, BOT_TOKEN) {
   }
 }
 
+/**
+ * Handle /testaccess command - test fetch access token from database for debugging
+ */
+async function handleTestAccessCommand(chatId, BOT_TOKEN) {
+  try {
+    console.log(`🔍 Processing /testaccess command from chat ${chatId}`);
+    
+    // Send initial message
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: "🔍 *Testing Database Access...*\n\nFetching your access token from database, please wait...",
+      parse_mode: "Markdown"
+    });
+    
+    // Import database functions
+    const { getTokens } = require('./tokenRepo');
+    
+    console.log(`📊 Fetching tokens from database for chat ${chatId}`);
+    
+    // Fetch tokens from database
+    const tokens = await getTokens(chatId);
+    
+    if (!tokens) {
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: `🔍 *Test Access Results*\n\n` +
+              `❌ No tokens found in database\n\n` +
+              `📊 Chat ID: \`${chatId}\`\n` +
+              `🗄️ Database query: Searched telegram_user_id = ${chatId}\n\n` +
+              `💡 Use /connect to set up your Zoho CRM connection first!`,
+        parse_mode: "Markdown"
+      });
+      
+      return { success: false, error: 'No tokens found', chatId: chatId };
+    }
+    
+    // Check token expiry
+    const now = new Date();
+    const expiresAt = new Date(tokens.expires_at);
+    const isExpired = now >= expiresAt;
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+    const minutesUntilExpiry = Math.floor(timeUntilExpiry / (1000 * 60));
+    const hoursUntilExpiry = Math.floor(minutesUntilExpiry / 60);
+    
+    let timeString;
+    if (hoursUntilExpiry > 0) {
+      timeString = `${hoursUntilExpiry}h ${minutesUntilExpiry % 60}m`;
+    } else if (minutesUntilExpiry > 0) {
+      timeString = `${minutesUntilExpiry}m`;
+    } else if (minutesUntilExpiry >= 0) {
+      timeString = "Less than 1 minute";
+    } else {
+      timeString = `Expired ${Math.abs(minutesUntilExpiry)}m ago`;
+    }
+    
+    // Test the access token with Zoho API
+    let apiTestResult = { success: false, error: 'Not tested' };
+    
+    try {
+      console.log(`🧪 Testing access token with Zoho API...`);
+      console.log(`🔑 Using access token: ${tokens.access_token.substring(0, 20)}...`);
+      
+      const testResponse = await axios.get('https://www.zohoapis.com/crm/v2/org', {
+        headers: { 
+          Authorization: `Zoho-oauthtoken ${tokens.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      });
+      
+      apiTestResult = {
+        success: true,
+        status: testResponse.status,
+        orgName: testResponse.data.org?.[0]?.company_name || 'N/A'
+      };
+      
+      console.log(`✅ API test successful! Org: ${apiTestResult.orgName}`);
+    } catch (apiError) {
+      apiTestResult = {
+        success: false,
+        status: apiError.response?.status || 'No status',
+        error: apiError.response?.data?.message || apiError.message,
+        code: apiError.response?.data?.code || 'No code'
+      };
+      
+      console.log(`❌ API test failed: ${apiTestResult.error}`);
+    }
+    
+    // Format comprehensive response
+    let reply = "🔍 *Test Access Results:*\n\n";
+    
+    // Database info
+    reply += `📊 *Database Info:*\n`;
+    reply += `• Chat ID: \`${chatId}\`\n`;
+    reply += `• Telegram User ID: \`${tokens.telegram_user_id}\`\n`;
+    reply += `• Record Found: ✅ Yes\n`;
+    reply += `• Created: ${new Date(tokens.created_at).toLocaleString()}\n`;
+    reply += `• Updated: ${new Date(tokens.updated_at).toLocaleString()}\n\n`;
+    
+    // Token info
+    reply += `🔑 *Token Info:*\n`;
+    reply += `• Access Token: ${tokens.access_token.substring(0, 20)}...\n`;
+    reply += `• Refresh Token: ${tokens.refresh_token.substring(0, 20)}...\n`;
+    reply += `• Client ID: ${tokens.client_id.substring(0, 20)}...\n`;
+    reply += `• Expires At: ${expiresAt.toLocaleString()}\n`;
+    reply += `• Status: ${isExpired ? '❌ Expired' : '✅ Valid'}\n`;
+    reply += `• Time Left: ${timeString}\n\n`;
+    
+    // API test results
+    reply += `🧪 *API Test:*\n`;
+    if (apiTestResult.success) {
+      reply += `• Status: ✅ Success (${apiTestResult.status})\n`;
+      reply += `• Organization: ${apiTestResult.orgName}\n`;
+      reply += `• Token Valid: ✅ Yes\n`;
+    } else {
+      reply += `• Status: ❌ Failed (${apiTestResult.status})\n`;
+      reply += `• Error: ${apiTestResult.error}\n`;
+      reply += `• Code: ${apiTestResult.code}\n`;
+      reply += `• Token Valid: ❌ No\n`;
+    }
+    
+    reply += `\n🔄 Last tested: ${new Date().toLocaleTimeString()}`;
+    reply += `\n🔍 Test completed successfully!`;
+
+    // Send comprehensive results
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: reply,
+      parse_mode: "Markdown"
+    });
+
+    console.log(`✅ Test access completed successfully for chat ${chatId}`);
+    
+    return {
+      success: true,
+      chatId: chatId,
+      tokenFound: true,
+      isExpired: isExpired,
+      apiTest: apiTestResult,
+      testMode: true
+    };
+
+  } catch (error) {
+    console.error(`❌ Error in /testaccess command for chat ${chatId}:`, error.message);
+    console.error('Error details:', {
+      code: error.code,
+      message: error.message,
+      stack: error.stack?.split('\n').slice(0, 3)
+    });
+    
+    let errorMessage = "❌ *Test Access Error*\n\n";
+    
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      errorMessage += `🌐 Database connection error.\n\n` +
+                     `Cannot connect to the database.\n` +
+                     `Please check if the database is accessible.`;
+    } else if (error.message.includes('relation') && error.message.includes('does not exist')) {
+      errorMessage += `🗄️ Database table missing.\n\n` +
+                     `The oauth_tokens table does not exist.\n` +
+                     `Please run the database setup script.`;
+    } else {
+      errorMessage += `📝 ${error.message}\n\n`;
+      errorMessage += `🔧 Error code: ${error.code || 'Unknown'}\n\n`;
+      errorMessage += `Chat ID: \`${chatId}\``;
+    }
+    
+    try {
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: errorMessage,
+        parse_mode: "Markdown"
+      });
+    } catch (sendError) {
+      console.error(`❌ Failed to send error message to chat ${chatId}:`, sendError.message);
+    }
+    
+    return {
+      success: false,
+      error: error.message,
+      code: error.code,
+      chatId: chatId,
+      testMode: true
+    };
+  }
+}
+
 module.exports = {
   handleLeadsCommand,
-  handleTestLeadsCommand
+  handleTestLeadsCommand,
+  handleTestAccessCommand
 };
