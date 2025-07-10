@@ -20,6 +20,13 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
       throw new Error('No access token found. Please connect your Zoho CRM using /connect');
     }
     
+// Debug: Send access token to telegram before making API call
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: `🔍 Attempting to create lead with access token: \n\`${tokens.access_token}\``,
+      parse_mode: "Markdown"
+    });
+
     // Make POST request to create a new lead
     const response = await axios.post('https://www.zohoapis.com/crm/v2/Leads',
       {
