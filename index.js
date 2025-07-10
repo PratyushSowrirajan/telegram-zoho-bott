@@ -201,7 +201,6 @@ app.post("/telegram-webhook", async (req, res) => {
       
       return res.status(500).json({ status: "error", message: "failed to send instructions" });
     }
-  } 
   }
   // Handle lead creation command
   else if (text.startsWith("/leadcreation_")) {
@@ -216,6 +215,8 @@ app.post("/telegram-webhook", async (req, res) => {
     }
   }
   // Database test command for debugging
+  else if (text === "/dbtest") {
+    try {
       console.log(`🧪 Processing /dbtest command from chat ${chatId}`);
       
       await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
