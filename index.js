@@ -4,7 +4,6 @@ const { saveTokens, getTokens, areTokensExpired } = require('./tokenRepo');
 const { testDatabaseConnection } = require('./db');
 const { startBackgroundRefresh, getValidAccessToken, refreshAccessToken } = require('./tokenRefresh');
 const { handleLeadsCommand } = require('./leadCommands');
-const { setupPingRoutes, logServerStart } = require('./uptimeMonitor');
 const app = express();
 app.use(express.json());
 
@@ -52,12 +51,6 @@ setupWebhook();
 
 // Start automatic token refresh service
 startBackgroundRefresh();
-
-// Setup UptimeRobot monitoring routes
-setupPingRoutes(app);
-
-// Log server startup for monitoring
-logServerStart();
 
 // Store user states for multi-step process
 const userStates = new Map();
@@ -1565,7 +1558,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Telegram Zoho Bot running on port ${PORT}`);
   console.log(`🌐 Server URL: ${process.env.RENDER_EXTERNAL_URL || 'http://localhost:' + PORT}`);
-  console.log(`🔄 UptimeRobot endpoint: /ping`);
-  console.log(`📊 Ping statistics: /ping-stats`);
-  console.log('✅ Ready to receive webhooks and ping requests!');
+  console.log('✅ Ready to receive webhooks!');
 });
