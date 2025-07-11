@@ -29,7 +29,7 @@ async function handleLeadInfoCommand(chatId, BOT_TOKEN, text) {
       }
     });
 
-    // Parse lead details
+    // Parse lead details - EXPLAIN HERE
     if (response.data && response.data.data && response.data.data.length > 0) {
       const lead = response.data.data[0];
       let reply = `📘 *Lead Details:*\n\n`;
@@ -64,7 +64,7 @@ const axios = require("axios");
 const { getTokens } = require('./tokenRepo');
 
 /**
- * Handle /leadcreation command - Create a new lead in Zoho CRM
+ * Handle /leadcreation command - Create a new lead in Zoho CRM 
  */
 async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
   try {
@@ -82,7 +82,7 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
       throw new Error('No access token found. Please connect your Zoho CRM using /connect');
     }
     
-// Debug: Send access token to telegram before making API call
+// Debug: Send access token to telegram before making API call - EXPLAIN HERE
     await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text: `🔍 Attempting to create lead with access token: \n\`${tokens.access_token}\``,
@@ -168,7 +168,7 @@ async function handleLeadCreationCommand(chatId, BOT_TOKEN, text) {
 const { getValidAccessToken } = require('./tokenRefresh');
 
 /**
- * Handle /leads command - fetch latest leads from Zoho CRM using database token
+ * Handle /leads command - fetch latest leads from Zoho CRM using database token - EXPLAIN HERE
  */
 async function handleLeadsCommand(chatId, BOT_TOKEN) {
   try {
@@ -667,7 +667,7 @@ async function handleTestAccessCommand(chatId, BOT_TOKEN) {
     };
   }
 }
-
+//EXPLAIN EXPORTS HERE
 module.exports = {
   handleLeadsCommand,
   handleTestLeadsCommand,
@@ -675,3 +675,6 @@ module.exports = {
   handleLeadCreationCommand,
   handleLeadInfoCommand
 };
+
+
+// PUSHED TO GITHUB AND THEN DEPLOYED IN RENDER , HENCE COMMANDS WORK IN TELEGRAM

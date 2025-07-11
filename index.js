@@ -7,6 +7,7 @@ const { handleLeadsCommand } = require('./leadCommands');
 const app = express();
 app.use(express.json());
 
+//fetch from render environment - EXPLAIN THIS
 const BOT_TOKEN = process.env.TELEGRAM_TOKEN;
 const ZOHO_TOKEN = "your_zoho_oauth_token_here";
 
@@ -174,7 +175,7 @@ app.post("/telegram-webhook", async (req, res) => {
   // EARLY SAFETY CHECK: Handle ALL commands that start with / first to prevent fallthrough
   if (text && text.startsWith('/')) {
     console.log(`🔧 SAFETY CHECK: Processing command "${text}"`);
-    
+    //EXPLAIN THIS 
     // Process known commands
     if (text === "/connect") {
       // Continue to main /connect logic below
@@ -201,7 +202,7 @@ app.post("/telegram-webhook", async (req, res) => {
         }
         return res.status(500).json({ status: "error", message: "leads_failed" });
       }
-    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken" || text === "/clearwebhook") {
+    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken" || text === "/clearwebhook" || text.startsWith("/leadinfo_") || text.startsWith("/leadcreation_")) {
       // Continue to main command logic below for these
     } else {
       // Unknown command - handle it and return immediately
@@ -228,7 +229,7 @@ app.post("/telegram-webhook", async (req, res) => {
     }
   }
 
-  // Always respond to /connect command
+  // Always respond to /connect command - EXPLAIN THIS
   if (text === "/connect") {
     try {
       console.log(`✅ Processing /connect command from chat ${chatId}`);
@@ -284,7 +285,7 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "failed to send instructions" });
     }
   }
-  // Handle lead creation command
+  // Handle lead creation command - EXPLAIN THIS
   else if (text.startsWith("/leadcreation_")) {
     try {
       console.log(`📝 Processing /leadcreation command from chat ${chatId}`);
@@ -296,7 +297,7 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "lead_creation_failed" });
     }
   }
-  // Handle lead info command
+  // Handle lead info command - EXPLAIN THIS
   else if (text.startsWith("/leadinfo_")) {
     try {
       console.log(`📘 Processing /leadinfo command from chat ${chatId}`);
@@ -320,7 +321,7 @@ app.post("/telegram-webhook", async (req, res) => {
       });
       
       const testResult = await testDatabaseConnection();
-      
+      //DATABASE SUCCESS - EXPLAIN THIS
       let message;
       if (testResult.success) {
         message = `✅ *Database Test Successful!*\n\n` +
@@ -532,7 +533,7 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "debug_failed" });
     }
   }
-  // Leads command to fetch latest leads from Zoho CRM
+  // Leads command to fetch latest leads from Zoho CRM - EXPLAIN THIS
   else if (text === "/leads") {
     try {
       console.log(`📊 Processing /leads command from chat ${chatId}`);
@@ -581,7 +582,7 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "testaccess_failed" });
     }
   }
-  // Manual token exchange command for testing
+  // Manual token exchange command for testing - EXPLAIN THIS
   else if (text === "/manualtoken") {
     try {
       console.log(`🔧 Processing /manualtoken command from chat ${chatId}`);
@@ -697,7 +698,7 @@ app.post("/telegram-webhook", async (req, res) => {
 
       console.log('🔄 Attempting token exchange...');
       
-      // Exchange code for tokens
+      // Exchange code for tokens - IMPORTANT EXPLAIN THIS 
       const tokenResponse = await axios.post('https://accounts.zoho.com/oauth/v2/token', null, {
         params: {
           grant_type: 'authorization_code',
@@ -864,7 +865,7 @@ app.post("/telegram-webhook", async (req, res) => {
           try {
             console.log('💾 Attempting to store tokens in database (fallback)...');
             
-            // Add a small delay to ensure database is ready
+            // Add a small delay to ensure database is ready - EXPLAIN ERROR FACED HERE
             console.log('⏳ Waiting a moment for database pool to be ready...');
             await new Promise(resolve => setTimeout(resolve, 2000));
             
