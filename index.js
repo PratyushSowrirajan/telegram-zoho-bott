@@ -202,7 +202,7 @@ app.post("/telegram-webhook", async (req, res) => {
         }
         return res.status(500).json({ status: "error", message: "leads_failed" });
       }
-    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken" || text === "/clearwebhook" || text.startsWith("/leadinfo_") || text.startsWith("/leadcreation_")) {
+    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken" || text === "/clearwebhook" || text === "/help" || text.startsWith("/leadinfo_") || text.startsWith("/leadcreation_")) {
       // Continue to main command logic below for these
     } else {
       // Unknown command - handle it and return immediately
@@ -212,14 +212,12 @@ app.post("/telegram-webhook", async (req, res) => {
           chat_id: chatId,
           text: `❓ *Unknown Command*\n\n` +
                 `I don't recognize: \`${text}\`\n\n` +
-                `🤖 *Available commands:*\n` +
+                `🤖 *Quick commands:*\n` +
+                `• /help - Show all commands\n` +
                 `• /connect - Connect Zoho CRM\n` +
                 `• /status - Check connection\n` +
-                `• /leads - Get leads\n` +
-                `• /debug - Debug info\n` +
-                `• /dbtest - Test database\n` +
-                `• /clearwebhook - Fix stuck messages\n\n` +
-                `Use /connect to get started.`,
+                `• /leads - Get leads\n\n` +
+                `Use /help for the complete command list.`,
           parse_mode: "Markdown"
         });
       } catch (msgError) {
@@ -607,6 +605,63 @@ app.post("/telegram-webhook", async (req, res) => {
     } catch (error) {
       console.error("❌ Error in manualtoken command:", error.message);
       return res.status(500).json({ status: "error", message: "manualtoken_failed" });
+    }
+  }
+  // Help command to show all available commands
+  else if (text === "/help") {
+    try {
+      console.log(`❓ Processing /help command from chat ${chatId}`);
+      
+      const helpMessage = `🤖 *Telegram Zoho Bot Help*\n\n` +
+        `👥 **USER COMMANDS:**\n` +
+        `• /connect - Set up Zoho CRM integration\n` +
+        `• /status - Check connection and token status\n` +
+        `• /leads - Get latest leads from your CRM\n` +
+        `• /leadcreation\\_[data] - Create new leads\n` +
+        `• /leadinfo\\_[id] - Get information about specific leads\n` +
+        `• /help - Show this help message\n\n` +
+        
+        `🔧 **DEVELOPER COMMANDS:**\n` +
+        `• /debug - Advanced token debugging with API validation\n` +
+        `• /dbtest - Test database connection and diagnostics\n` +
+        `• /testleads - Test leads fetching with hardcoded token\n` +
+        `• /testaccess - Test token access from database\n` +
+        `• /manualtoken - Manual token exchange testing\n` +
+        `• /clearwebhook - Fix stuck messages by resetting webhook\n\n` +
+        
+        `🔄 **OTHER COMMANDS:**\n` +
+        `• Send JSON from self\\_client.json file for setup\n` +
+        `• Send "Token Exchange Successful!" format message\n\n` +
+        
+        `💡 **Getting Started:**\n` +
+        `1. Use /connect to link your Zoho CRM\n` +
+        `2. Use /status to check your connection\n` +
+        `3. Use /leads to fetch your CRM data\n\n` +
+        
+        `📞 **Need Help?** Contact support if you encounter issues.`;
+
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: helpMessage,
+        parse_mode: "Markdown"
+      });
+      
+      return res.status(200).json({ status: "success", action: "help_completed" });
+      
+    } catch (error) {
+      console.error("❌ Error in help command:", error.message);
+      
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: "❌ *Help Error*\n\nFailed to display help information. Please try again.",
+          parse_mode: "Markdown"
+        });
+      } catch (fallbackError) {
+        console.error("❌ Failed to send help error message:", fallbackError.message);
+      }
+      
+      return res.status(500).json({ status: "error", message: "help_failed" });
     }
   }
   // Clear webhook command to reset stuck messages
@@ -1154,15 +1209,14 @@ app.post("/telegram-webhook", async (req, res) => {
           chat_id: chatId,
           text: `❓ Unknown command: "${text}"\n\n` +
                 `Available commands:\n` +
+                `• /help - Show all commands\n` +
                 `• /connect - Set up Zoho CRM integration\n` +
                 `• /status - Check connection and token status\n` +
-                `• /leads - Get latest leads from your CRM\n` +
-                `• /dbtest - Test database connection\n` +
-                `• /manualtoken - Manual token exchange test\n\n` +
+                `• /leads - Get latest leads from your CRM\n\n` +
                 `💡 *Alternative setup methods:*\n` +
                 `• Send JSON from self_client.json file\n` +
                 `• Send "Token Exchange Successful!" format message\n\n` +
-                `Please use /connect to get started.`,
+                `Use /help for the complete command list.`,
           parse_mode: "Markdown"
         });
       } catch (msgError) {
