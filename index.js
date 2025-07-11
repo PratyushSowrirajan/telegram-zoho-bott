@@ -55,6 +55,19 @@ startBackgroundRefresh();
 // Store user states for multi-step process
 const userStates = new Map();
 
+// Store processed message IDs to prevent duplicates
+const processedMessages = new Map();
+
+// Clean up old processed messages every hour
+setInterval(() => {
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  for (const [messageId, timestamp] of processedMessages.entries()) {
+    if (timestamp < oneHourAgo) {
+      processedMessages.delete(messageId);
+    }
+  }
+}, 60 * 60 * 1000);
+
 // Health check endpoint
 app.get("/", (req, res) => {
   const PORT = process.env.PORT || 3000;
@@ -137,13 +150,25 @@ app.post("/telegram-webhook", async (req, res) => {
   const message = req.body.message;
   const chatId = message.chat.id;
   const text = message.text;
+  const messageId = message.message_id;
   
-  console.log(`📱 Message from ${chatId}: "${text}" (length: ${text?.length})`);
+  // Check for duplicate message processing
+  const messageKey = `${chatId}_${messageId}`;
+  if (processedMessages.has(messageKey)) {
+    console.log(`🔄 Duplicate message detected: ${messageKey}, ignoring...`);
+    return res.status(200).json({ status: "ok", message: "duplicate_ignored" });
+  }
+  
+  // Mark message as processed
+  processedMessages.set(messageKey, Date.now());
+  
+  console.log(`📱 Message ${messageId} from ${chatId}: "${text}" (length: ${text?.length})`);
   console.log('Message details:', {
     type: typeof text,
     isConnect: text === "/connect",
     startsWithSlash: text?.startsWith('/'),
-    chatType: message.chat.type
+    chatType: message.chat.type,
+    messageId: messageId
   });
 
   // EARLY SAFETY CHECK: Handle ALL commands that start with / first to prevent fallthrough
@@ -176,7 +201,7 @@ app.post("/telegram-webhook", async (req, res) => {
         }
         return res.status(500).json({ status: "error", message: "leads_failed" });
       }
-    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken") {
+    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken" || text === "/clearwebhook") {
       // Continue to main command logic below for these
     } else {
       // Unknown command - handle it and return immediately
@@ -191,7 +216,8 @@ app.post("/telegram-webhook", async (req, res) => {
                 `• /status - Check connection\n` +
                 `• /leads - Get leads\n` +
                 `• /debug - Debug info\n` +
-                `• /dbtest - Test database\n\n` +
+                `• /dbtest - Test database\n` +
+                `• /clearwebhook - Fix stuck messages\n\n` +
                 `Use /connect to get started.`,
           parse_mode: "Markdown"
         });
@@ -582,6 +608,49 @@ app.post("/telegram-webhook", async (req, res) => {
       return res.status(500).json({ status: "error", message: "manualtoken_failed" });
     }
   }
+  // Clear webhook command to reset stuck messages
+  else if (text === "/clearwebhook") {
+    try {
+      console.log(`🔧 Processing /clearwebhook command from chat ${chatId}`);
+      
+      // Clear webhook to stop pending updates
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+        url: ""
+      });
+      
+      await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        chat_id: chatId,
+        text: "🔧 *Webhook Cleared*\n\nWebhook has been reset. Any stuck messages should stop now.\n\nRe-setting webhook in 3 seconds...",
+        parse_mode: "Markdown"
+      });
+      
+      // Wait 3 seconds then re-set webhook
+      setTimeout(async () => {
+        try {
+          const baseUrl = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL || 'https://telegram-zoho-bott.onrender.com';
+          const webhookUrl = `${baseUrl}/telegram-webhook`;
+          
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+            url: webhookUrl
+          });
+          
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: "✅ *Webhook Restored*\n\nWebhook has been re-established. The bot should work normally now.",
+            parse_mode: "Markdown"
+          });
+        } catch (restoreError) {
+          console.error("Failed to restore webhook:", restoreError.message);
+        }
+      }, 3000);
+      
+      return res.status(200).json({ status: "success", action: "webhook_cleared" });
+      
+    } catch (error) {
+      console.error("❌ Error in clearwebhook command:", error.message);
+      return res.status(500).json({ status: "error", message: "clearwebhook_failed" });
+    }
+  }
   // Check if user is in the waiting state for JSON (only when they sent /connect first)
   else if (userStates.has(chatId) && userStates.get(chatId).step === 'waiting_for_json') {
     try {
@@ -856,6 +925,23 @@ app.post("/telegram-webhook", async (req, res) => {
       try {
         console.log(`🔍 Processing Token Exchange Successful format from ${chatId}`);
         console.log('Message content:', text.substring(0, 200) + '...');
+        
+        // IMPORTANT: Check if this is the correct pipe-separated format
+        if (!text.includes('|')) {
+          console.log('❌ WRONG FORMAT: Multi-line Token Exchange message detected');
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `❌ *Wrong Message Format Detected*\n\n` +
+                  `You sent a multi-line "Token Exchange Successful!" message, but I need the **pipe-separated** format.\n\n` +
+                  `✅ **Correct format:**\n` +
+                  `✅ Token Exchange Successful!|🔑 Access Token: YOUR_TOKEN|♻️ Refresh Token: YOUR_REFRESH|⏰ Expires At: TIMESTAMP|🧠 Client ID: YOUR_ID|🔐 Client Secret: YOUR_SECRET\n\n` +
+                  `❌ **Wrong format (what you sent):**\n` +
+                  `Multi-line message with line breaks\n\n` +
+                  `🔧 **To fix this:** Use the Zoho widget or send the correct pipe-separated format.`,
+            parse_mode: "Markdown"
+          });
+          return res.status(400).json({ status: "error", action: "wrong_token_format_detected" });
+        }
         
         // Parse the "Token Exchange Successful!" message format
         // Expected format: "✅ Token Exchange Successful!|🔑 Access Token: ...|♻️ Refresh Token: ...|⏰ Expires At: ...|🧠 Client ID: ...|🔐 Client Secret: ..."
