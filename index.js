@@ -146,6 +146,62 @@ app.post("/telegram-webhook", async (req, res) => {
     chatType: message.chat.type
   });
 
+  // EARLY SAFETY CHECK: Handle ALL commands that start with / first to prevent fallthrough
+  if (text && text.startsWith('/')) {
+    console.log(`🔧 SAFETY CHECK: Processing command "${text}"`);
+    
+    // Process known commands
+    if (text === "/connect") {
+      // Continue to main /connect logic below
+    } else if (text === "/leads") {
+      try {
+        console.log(`📊 SAFETY: Processing /leads command from chat ${chatId}`);
+        const result = await handleLeadsCommand(chatId, BOT_TOKEN);
+        return res.status(200).json({ 
+          status: "success", 
+          action: "leads_completed",
+          leadCount: result.leadCount,
+          wasTokenRefreshed: result.wasTokenRefreshed
+        });
+      } catch (error) {
+        console.error("❌ SAFETY: Error in leads command:", error.message);
+        try {
+          await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            chat_id: chatId,
+            text: `❌ *Error processing /leads command*\n\n${error.message}\n\nPlease ensure you're connected with /connect first.`,
+            parse_mode: "Markdown"
+          });
+        } catch (msgError) {
+          console.error("Failed to send leads error message:", msgError.message);
+        }
+        return res.status(500).json({ status: "error", message: "leads_failed" });
+      }
+    } else if (text === "/status" || text === "/debug" || text === "/dbtest" || text === "/testleads" || text === "/testaccess" || text === "/manualtoken") {
+      // Continue to main command logic below for these
+    } else {
+      // Unknown command - handle it and return immediately
+      console.log(`❓ SAFETY: Unknown command: "${text}"`);
+      try {
+        await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          chat_id: chatId,
+          text: `❓ *Unknown Command*\n\n` +
+                `I don't recognize: \`${text}\`\n\n` +
+                `🤖 *Available commands:*\n` +
+                `• /connect - Connect Zoho CRM\n` +
+                `• /status - Check connection\n` +
+                `• /leads - Get leads\n` +
+                `• /debug - Debug info\n` +
+                `• /dbtest - Test database\n\n` +
+                `Use /connect to get started.`,
+          parse_mode: "Markdown"
+        });
+      } catch (msgError) {
+        console.error('Failed to send unknown command response:', msgError.message);
+      }
+      return res.status(200).json({ status: "ok", action: "unknown_command_handled" });
+    }
+  }
+
   // Always respond to /connect command
   if (text === "/connect") {
     try {
@@ -453,6 +509,7 @@ app.post("/telegram-webhook", async (req, res) => {
   // Leads command to fetch latest leads from Zoho CRM
   else if (text === "/leads") {
     try {
+      console.log(`📊 Processing /leads command from chat ${chatId}`);
       const result = await handleLeadsCommand(chatId, BOT_TOKEN);
       return res.status(200).json({ 
         status: "success", 
